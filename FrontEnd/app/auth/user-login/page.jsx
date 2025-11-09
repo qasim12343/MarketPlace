@@ -197,23 +197,22 @@ export default function Login() {
         dir="rtl"
       >
         <div className="max-w-md w-full space-y-8">
-          {/* Header Section */}
-          <div className="text-center">
-            <div className="flex justify-center">
-              <div className="w-20 h-20 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
-                <FaUser className="w-8 h-8" />
-              </div>
-            </div>
-            <h2 className="mt-6 text-3xl font-bold text-gray-900">
-              ورود به حساب کاربری
-            </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              خوش آمدید! لطفا اطلاعات حساب خود را وارد کنید
-            </p>
-          </div>
-
           {/* Login Form */}
           <div className="bg-white py-8 px-6 shadow-xl sm:rounded-2xl sm:px-10 border border-gray-100">
+            {/* Header Section */}
+            <div className="text-center bg-white w-full py-4 mb-4 shadow-xl sm:rounded-2xl sm:px-10 border border-gray-100">
+              <div className="flex justify-center">
+                <div className="w-20 h-20 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                  <FaUser className="w-8 h-8" />
+                </div>
+              </div>
+              <h2 className="mt-6 text-3xl font-bold text-gray-900">
+                ورود به حساب کاربری
+              </h2>
+              <p className="mt-3 text-sm text-orange-600">
+                خوش آمدید! لطفا اطلاعات حساب خود را وارد کنید
+              </p>
+            </div>
             <form className="space-y-6" onSubmit={handleSubmit}>
               {/* Phone Field */}
               <div>
