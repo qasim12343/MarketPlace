@@ -135,9 +135,9 @@ MIGRATION_MODULES = {
     'contenttypes': 'mongo_migrations.contenttypes',
 }
 
-# Custom user model
+# Custom user model - supports both Customer and StoreOwner authentication
 AUTH_USER_MODEL = 'marketplace.Customer'
-
+AUTH_USER_MODEL = 'marketplace.StoreOwner'
 # CORS Configuration for Next.js frontend
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
