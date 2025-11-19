@@ -79,6 +79,9 @@ const HomePage = () => {
   const handleLogin = () => {
     router.push("/auth/user-login");
   };
+  const handleStoreLogin = () => {
+    router.push("/auth/owner-register");
+  };
 
   return (
     <div
@@ -111,13 +114,23 @@ const HomePage = () => {
             </button>
           </div>
         ) : (
-          <button
-            onClick={handleLogin}
-            className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl"
-          >
-            <FaSignInAlt className="w-4 h-4" />
-            <span>ورود به حساب کاربری</span>
-          </button>
+          <div className="gap-8 flex justify-center items-center">
+            <button
+              onClick={handleLogin}
+              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl"
+            >
+              <FaSignInAlt className="w-4 h-4" />
+              <span>ورود به حساب کاربری</span>
+            </button>
+
+            <button
+              onClick={handleStoreLogin}
+              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl"
+            >
+              <FaSignInAlt className="w-4 h-4" />
+              <span>ورود به حساب فروشگاه</span>
+            </button>
+          </div>
         )}
       </div>
 

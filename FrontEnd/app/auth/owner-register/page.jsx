@@ -1,12 +1,10 @@
-// app/user-register/page.js
+// app/register/page.js
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast, Toaster } from "react-hot-toast";
 import axios from "axios";
-const BASE_API = process.env.NEXT_PUBLIC_API_URL;
-
 import {
   FaUser,
   FaPhone,
@@ -16,23 +14,54 @@ import {
   FaUserPlus,
   FaSignInAlt,
   FaIdCard,
+  FaStore,
+  FaMapMarkerAlt,
+  FaChevronDown,
 } from "react-icons/fa";
 
+// base Api for backend
+const BASE_API_REG_OWNER = `${process.env.NEXT_PUBLIC_API_URL}/store-owners/`;
 
-export default function CustomerRegister() {
+// list city of Tehran
+const iranianCities = [
+  "تهران",
+  "مشهد",
+  "اصفهان",
+  "شیراز",
+  "تبریز",
+  "کرج",
+  "اهواز",
+  "قم",
+  "کرمانشاه",
+  "ارومیه",
+  "رشت",
+  "زاهدان",
+  "کرمان",
+  "همدان",
+  "اردبیل",
+  "یزد",
+  "بندرعباس",
+  "اراک",
+  "اسلامشهر",
+  "زنجان",
+];
+
+export default function Register() {
   const router = useRouter();
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
     phone: "",
     password: "",
-    confirmPassword: "",
+    storeName: "",
+    storeCity: "",
   });
 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showCityDropdown, setShowCityDropdown] = useState(false);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -50,6 +79,21 @@ export default function CustomerRegister() {
     }
   };
 
+  const handleCitySelect = (city) => {
+    setFormData((prev) => ({
+      ...prev,
+      storeCity: city,
+    }));
+    setShowCityDropdown(false);
+
+    if (errors.storeCity) {
+      setErrors((prev) => ({
+        ...prev,
+        storeCity: "",
+      }));
+    }
+  };
+
   const validateField = (fieldName, value) => {
     let fieldErrors = "";
 
@@ -63,6 +107,14 @@ export default function CustomerRegister() {
         if (!value.trim()) fieldErrors = "نام خانوادگی الزامی است";
         else if (value.trim().length < 2)
           fieldErrors = "نام خانوادگی باید حداقل ۲ حرف باشد";
+        break;
+      case "storeName":
+        if (!value.trim()) fieldErrors = "نام فروشگاه الزامی است";
+        else if (value.trim().length < 2)
+          fieldErrors = "نام فروشگاه باید حداقل ۲ حرف باشد";
+        break;
+      case "storeCity":
+        if (!value.trim()) fieldErrors = "شهر فروشگاه الزامی است";
         break;
       case "phone":
         if (!value.trim()) fieldErrors = "شماره تماس الزامی است";
@@ -99,17 +151,9 @@ export default function CustomerRegister() {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // Validate only required fields
-    const requiredFields = [
-      "firstName",
-      "lastName",
-      "phone",
-      "password",
-      "confirmPassword",
-    ];
+    // Validate all fields
     const newErrors = {};
-
-    requiredFields.forEach((key) => {
+    Object.keys(formData).forEach((key) => {
       const error = validateField(key, formData[key]);
       if (error) {
         newErrors[key] = error;
@@ -118,11 +162,11 @@ export default function CustomerRegister() {
 
     setErrors(newErrors);
 
-    // Check if there are any errors in required fields
+    // Check if there are any errors
     const hasErrors = Object.values(newErrors).some((error) => error !== "");
 
     if (hasErrors) {
-      toast.error("لطفا فیلدهای الزامی را تکمیل کنید", {
+      toast.error("لطفا خطاهای فرم را برطرف کنید", {
         duration: 4000,
         position: "top-center",
         style: {
@@ -144,25 +188,22 @@ export default function CustomerRegister() {
       last_name: formData.lastName,
       phone: formData.phone,
       password: formData.password,
-      email: `user${Date.now()}@example.com`, // Dummy email
-      //   password_confirmation: formData.confirmPassword,
+      store_name: formData.storeName,
+      store_city: formData.storeCity,
     };
 
     try {
-      // API call using Axios - changed endpoint to customer registration
-      const response = await axios.post(
-        "http://127.0.0.1:8000/api/users/",
-        submitData,
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
-          timeout: 10000,
-        }
-      );
+      // API call using Axios
+      const response = await axios.post(BASE_API_REG_OWNER, submitData, {
+        headers: {
+          "Content-Type": "application/json",
+        },
+        timeout: 10000,
+      });
 
       console.log(response);
-      if (response.status === 201) {
+
+      if (response.data.success) {
         toast.success(
           "ثبت نام با موفقیت انجام شد! در حال انتقال به صفحه ورود...",
           {
@@ -179,7 +220,6 @@ export default function CustomerRegister() {
           }
         );
 
-        localStorage.setItem("ID", response.data.id);
         // Reset form
         setFormData({
           firstName: "",
@@ -187,14 +227,30 @@ export default function CustomerRegister() {
           phone: "",
           password: "",
           confirmPassword: "",
+          storeName: "",
+          storeCity: "",
         });
 
         // Redirect to login page after 2 seconds
         setTimeout(() => {
-          router.push("/auth/user-login");
+          router.push("/auth/owner-login");
         }, 2000);
       } else {
-        throw new Error(response.data.message || "خطا در ثبت نام");
+        let errorMessage = response.data.message || "خطا در ثبت نام";
+        console.log("-----------------------");
+        console.log(errorMessage);
+        toast.error(errorMessage, {
+          duration: 5000,
+          position: "top-center",
+          style: {
+            background: "#fef2f2",
+            color: "#dc2626",
+            border: "1px solid #fecaca",
+            padding: "16px",
+            borderRadius: "12px",
+            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
+          },
+        });
       }
     } catch (error) {
       console.error("Registration error:", error);
@@ -227,7 +283,7 @@ export default function CustomerRegister() {
   };
 
   const handleLoginRedirect = () => {
-    router.push("/auth/user-login");
+    router.push("/auth/login");
   };
 
   const togglePasswordVisibility = () => {
@@ -251,26 +307,26 @@ export default function CustomerRegister() {
         }}
       />
 
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
           <div className="flex justify-center">
-            <div className="w-20 h-20 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
-              <FaUserPlus className="w-8 h-8" />
+            <div className="w-20 h-20 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+              <FaStore className="w-8 h-8" />
             </div>
           </div>
           <h2 className="mt-6 text-center text-3xl font-bold text-gray-900">
-            ثبت نام مشتری
+            ثبت نام مالک فروشگاه
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            اطلاعات شخصی خود را وارد کنید
+            اطلاعات شخصی و فروشگاه خود را وارد کنید
           </p>
         </div>
 
-        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-xl">
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-2xl">
           <div className="bg-white py-8 px-6 shadow-xl sm:rounded-2xl sm:px-10 border border-gray-100">
             <form className="space-y-6" onSubmit={handleSubmit}>
-              {/* Personal Information Section */}
-              <div className="space-y-4">
+              {/* بخش اطلاعات شخصی */}
+              <div className="border-gray-200">
                 <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
                   <FaUser className="ml-2" />
                   اطلاعات شخصی
@@ -296,7 +352,7 @@ export default function CustomerRegister() {
                         value={formData.firstName}
                         onChange={handleChange}
                         onBlur={handleBlur}
-                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right ${
+                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
                           errors.firstName
                             ? "border-red-500 bg-red-50"
                             : "border-gray-300 hover:border-gray-400"
@@ -331,7 +387,7 @@ export default function CustomerRegister() {
                         value={formData.lastName}
                         onChange={handleChange}
                         onBlur={handleBlur}
-                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right ${
+                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
                           errors.lastName
                             ? "border-red-500 bg-red-50"
                             : "border-gray-300 hover:border-gray-400"
@@ -348,7 +404,7 @@ export default function CustomerRegister() {
                   </div>
                 </div>
 
-                <div>
+                <div className="mt-4">
                   <label
                     htmlFor="phone"
                     className="block text-sm font-medium text-gray-700 mb-2"
@@ -367,7 +423,7 @@ export default function CustomerRegister() {
                       value={formData.phone}
                       onChange={handleChange}
                       onBlur={handleBlur}
-                      className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right ${
+                      className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
                         errors.phone
                           ? "border-red-500 bg-red-50"
                           : "border-gray-300 hover:border-gray-400"
@@ -384,8 +440,114 @@ export default function CustomerRegister() {
                 </div>
               </div>
 
-              {/* Password Section */}
-              <div className="space-y-4">
+              {/* بخش اطلاعات فروشگاه */}
+              <div className="">
+                <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
+                  <FaStore className="ml-2" />
+                  اطلاعات فروشگاه
+                </h3>
+
+                <div className="space-y-4">
+                  <div>
+                    <label
+                      htmlFor="storeName"
+                      className="block text-sm font-medium text-gray-700 mb-2"
+                    >
+                      نام فروشگاه *
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        <FaStore className="h-5 w-5 text-gray-400" />
+                      </div>
+                      <input
+                        id="storeName"
+                        name="storeName"
+                        type="text"
+                        value={formData.storeName}
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
+                          errors.storeName
+                            ? "border-red-500 bg-red-50"
+                            : "border-gray-300 hover:border-gray-400"
+                        }`}
+                        placeholder="نام فروشگاه"
+                        dir="rtl"
+                      />
+                    </div>
+                    {errors.storeName && (
+                      <p className="mt-1 text-sm text-red-600 flex items-center justify-end">
+                        {errors.storeName}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="storeCity"
+                      className="block text-sm font-medium text-gray-700 mb-2"
+                    >
+                      شهر فروشگاه *
+                    </label>
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowCityDropdown(!showCityDropdown)}
+                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
+                          errors.storeCity
+                            ? "border-red-500 bg-red-50"
+                            : "border-gray-300 hover:border-gray-400"
+                        } ${
+                          formData.storeCity ? "text-gray-900" : "text-gray-400"
+                        }`}
+                        dir="rtl"
+                      >
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                          <FaMapMarkerAlt className="h-5 w-5 text-gray-400" />
+                        </div>
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                          <FaChevronDown
+                            className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${
+                              showCityDropdown ? "rotate-180" : ""
+                            }`}
+                          />
+                        </div>
+                        {formData.storeCity || "انتخاب شهر"}
+                      </button>
+
+                      {/* Dropdown Menu */}
+                      {showCityDropdown && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                          <div className="py-1">
+                            {iranianCities.map((city) => (
+                              <button
+                                key={city}
+                                type="button"
+                                onClick={() => handleCitySelect(city)}
+                                className={`block w-full text-right px-4 py-2 text-sm hover:bg-gray-100 transition-colors duration-200 ${
+                                  formData.storeCity === city
+                                    ? "bg-indigo-50 text-indigo-700"
+                                    : "text-gray-700"
+                                }`}
+                              >
+                                {city}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {errors.storeCity && (
+                      <p className="mt-1 text-sm text-red-600 flex items-center justify-end">
+                        {errors.storeCity}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* بخش رمز عبور */}
+              <div>
                 <h3 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
                   <FaLock className="ml-2" />
                   اطلاعات امنیتی
@@ -397,7 +559,7 @@ export default function CustomerRegister() {
                       htmlFor="password"
                       className="block text-sm font-medium text-gray-700 mb-2"
                     >
-                      رمز عبور*
+                      رمز عبور *
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
@@ -411,7 +573,7 @@ export default function CustomerRegister() {
                         value={formData.password}
                         onChange={handleChange}
                         onBlur={handleBlur}
-                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right ${
+                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
                           errors.password
                             ? "border-red-500 bg-red-50"
                             : "border-gray-300 hover:border-gray-400"
@@ -443,7 +605,7 @@ export default function CustomerRegister() {
                       htmlFor="confirmPassword"
                       className="block text-sm font-medium text-gray-700 mb-2"
                     >
-                      تکرار رمز عبور*
+                      تکرار رمز عبور *
                     </label>
                     <div className="relative">
                       <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
@@ -457,7 +619,7 @@ export default function CustomerRegister() {
                         value={formData.confirmPassword}
                         onChange={handleChange}
                         onBlur={handleBlur}
-                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right ${
+                        className={`appearance-none block w-full pl-10 pr-12 py-3 border rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all duration-200 text-right ${
                           errors.confirmPassword
                             ? "border-red-500 bg-red-50"
                             : "border-gray-300 hover:border-gray-400"
@@ -491,10 +653,10 @@ export default function CustomerRegister() {
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 ${
+                  className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 ${
                     isSubmitting
                       ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 hover:shadow-lg transform hover:-translate-y-0.5"
+                      : "bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 hover:shadow-lg transform hover:-translate-y-0.5"
                   }`}
                 >
                   {isSubmitting ? (
@@ -504,8 +666,8 @@ export default function CustomerRegister() {
                     </>
                   ) : (
                     <>
-                      <FaUserPlus className="ml-2" />
-                      ثبت نام مشتری
+                      <FaStore className="ml-2" />
+                      ثبت نام مالک فروشگاه
                     </>
                   )}
                 </button>
@@ -528,7 +690,7 @@ export default function CustomerRegister() {
               <div className="mt-6">
                 <button
                   onClick={handleLoginRedirect}
-                  className="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 hover:shadow-md"
+                  className="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-xl shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 hover:shadow-md"
                 >
                   <FaSignInAlt className="ml-2" />
                   ورود به حساب کاربری
