@@ -33,7 +33,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
             return [IsSelfOrAdmin()]
         return [permissions.IsAuthenticated()]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response({'detail': 'created successfully'}, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='upload-image')
+
     def upload_image(self, request, pk=None):
         user = self.get_object()
         file_obj = request.FILES.get('file')
@@ -98,8 +105,8 @@ class StoreOwnerViewSet(viewsets.ModelViewSet):
         if self.action in ['list']:
             # Only admins can list all store owners
             return [IsAdminRole()]
-        if self.action in ['retrieve', 'update', 'partial_update', 'destroy', 
-                          'upload_profile_image', 'remove_profile_image', 
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy',
+                          'upload_profile_image', 'remove_profile_image',
                           'upload_store_logo', 'remove_store_logo',
                           'profile_image_info', 'store_logo_info',
                           'download_profile_image', 'download_store_logo']:
@@ -107,7 +114,14 @@ class StoreOwnerViewSet(viewsets.ModelViewSet):
             return [IsSelfOrAdmin()]
         return [permissions.IsAuthenticated()]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response({'detail': 'created successfully'}, status=status.HTTP_201_CREATED)
+
     # Profile Image Actions
+
     @action(detail=True, methods=['post'], url_path='upload-profile-image')
     def upload_profile_image(self, request, pk=None):
         """Upload profile image for store owner"""
