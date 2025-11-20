@@ -45,10 +45,17 @@ class UserManager(BaseUserManager):
 
 class BaseUser(AbstractBaseUser, PermissionsMixin):
     """
-    Abstract base user model with common fields for all user types.
+    Concrete base user model with common fields for all user types.
     Customer, StoreOwner, and Admin will inherit from this.
     """
     id = ObjectIdAutoField(primary_key=True)
+
+    user_type = models.CharField(
+        max_length=20,
+        choices=[('customer', 'Customer'), ('store_owner', 'Store Owner')],
+        default='customer',
+    )
+
 
     first_name = models.CharField(
         max_length=50,
@@ -106,15 +113,26 @@ class BaseUser(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = "phone"
     REQUIRED_FIELDS = []
 
+    objects = UserManager()
+
     class Meta:
-        abstract = True
         indexes = [
             models.Index(fields=["phone"]),
             models.Index(fields=["email"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["user_type"]),
         ]
         verbose_name = "Base User"
         verbose_name_plural = "Base Users"
+
+    @property
+    def is_customer(self):
+        return self.user_type == 'customer'
+
+    @property
+    def is_store_owner(self):
+        return self.user_type == 'store_owner'
+
 
     @property
     def full_name(self):
@@ -194,32 +212,19 @@ class Customer(BaseUser):
     Customer user model - inherits all common fields from BaseUser.
     No role or is_superuser fields (those will be in Admin/StoreOwner models).
     """
-    # Override groups and user_permissions with different related_name
-    groups = models.ManyToManyField(
-        'auth.Group',
-        related_name='customer_set',
-        blank=True,
-        help_text='The groups this customer belongs to.',
-        verbose_name='groups',
-    )
-    user_permissions = models.ManyToManyField(
-        'auth.Permission',
-        related_name='customer_set',
-        blank=True,
-        help_text='Specific permissions for this customer.',
-        verbose_name='user permissions',
-    )
+    # Groups and user_permissions are inherited from BaseUser (PermissionsMixin)
 
     objects = UserManager()
 
+    def save(self, *args, **kwargs):
+        self.user_type = 'customer'
+        super().save(*args, **kwargs)
+
     class Meta:
-        indexes = [
-            models.Index(fields=["phone"]),
-            models.Index(fields=["email"]),
-            models.Index(fields=["status"]),
-        ]
         verbose_name = "Customer"
         verbose_name_plural = "Customers"
+
+
 
 
 # For backward compatibility and easier imports
@@ -311,13 +316,9 @@ class StoreOwner(BaseUser):
         blank=True,
         help_text="امتیاز فروشنده (average, count)"
     )
-    last_login = models.DateTimeField(
-        null=True,
-        blank=True,
-        help_text="آخرین ورود"
-    )
     
     # Store Logo Image (separate from profile image)
+
     store_logo_data = models.BinaryField(null=True, blank=True)
     store_logo_content_type = models.CharField(max_length=100, null=True, blank=True)
     store_logo_filename = models.CharField(max_length=255, null=True, blank=True)
@@ -402,22 +403,22 @@ class StoreOwner(BaseUser):
     )
     
     objects = StoreOwnerManager()
-    
+
     class Meta:
         indexes = [
-            models.Index(fields=["phone"]),
-            models.Index(fields=["email"]),
             models.Index(fields=["store_name"]),
             models.Index(fields=["seller_status"]),
             models.Index(fields=["store_type"]),
         ]
         verbose_name = "Store Owner"
         verbose_name_plural = "Store Owners"
-    
+
+
     def __str__(self):
         return f"{self.store_name} - {self.full_name}"
-    
+
     def save(self, *args, **kwargs):
+        self.user_type = 'store_owner'
         # Initialize default values for JSON fields if empty
         if not self.seller_rating:
             self.seller_rating = {"average": 0, "count": 0}
@@ -434,6 +435,7 @@ class StoreOwner(BaseUser):
         if not self.payment_settings:
             self.payment_settings = {}
         super().save(*args, **kwargs)
+
     
     # Store Logo Methods
     def has_store_logo(self):
