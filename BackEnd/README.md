@@ -1,3 +1,8 @@
+# Commands
+- python manage.py makemigrations
+- python manage.py migrate
+- python manage.py runserver
+
 # Customer
 ## Post sample to create user:
 - POST  http://127.0.0.1:8000/api/users/
