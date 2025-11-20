@@ -37,7 +37,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Installing Version NEXT JS
 
--npx create-next-app@latest  
+ ### npx create-next-app@latest  
  Need to install the following packages:
 create-next-app@16.0.1
 Ok to proceed? (y)

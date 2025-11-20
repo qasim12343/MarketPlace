@@ -1,4 +1,5 @@
-// app/user-login/page.js
+// app/owner-login/page.js
+
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -14,9 +15,10 @@ import {
   FaTwitter,
   FaSignInAlt,
   FaUserPlus,
+  FaStore,
 } from "react-icons/fa";
 
-const BASE_API_LOGIN_USER = `${process.env.NEXT_PUBLIC_API_URL}/auth/token/`;
+const BASE_API_LOGIN_OWNER = `${process.env.NEXT_PUBLIC_API_URL}/auth/token/`;
 
 export default function Login() {
   const router = useRouter();
@@ -81,12 +83,12 @@ export default function Login() {
     }
 
     try {
-      const response = await axios.post(BASE_API_LOGIN_USER, {
+      const response = await axios.post(BASE_API_LOGIN_OWNER, {
         phone: cleanPhone,
         password: formData.password,
       });
-      console.log(response);
 
+      console.log(response);
       if (response.status === 200) {
         toast.success("ورود موفقیت آمیز! در حال انتقال...", {
           duration: 3000,
@@ -101,13 +103,11 @@ export default function Login() {
           },
         });
 
-        console.log(response);
-        // Store token and user data
+        // Store token and Owner data
         if (response.data.access) {
           localStorage.setItem("accessToken", response.data.access);
           localStorage.setItem("phone", cleanPhone);
         }
-
         // Update last login
         const redirectData = localStorage.getItem("redirectAfterLogin");
         setTimeout(() => {
@@ -121,16 +121,7 @@ export default function Login() {
         }, 2000);
       }
     } catch (error) {
-      console.log(error);
       let errorMessage = "شماره تماس یا رمز عبور اشتباه است";
-
-      if (axios.isAxiosError(error)) {
-        if (error.response?.data?.detail) {
-          errorMessage = error.response.data.detail;
-        } else if (error.request) {
-          errorMessage = "خطا در ارتباط با سرور";
-        }
-      }
 
       toast.error(errorMessage, {
         duration: 4000,
@@ -150,7 +141,7 @@ export default function Login() {
   };
 
   const handleRegisterRedirect = () => {
-    router.push("/auth/user-register");
+    router.push("/auth/owner-register");
   };
 
   const togglePasswordVisibility = () => {
@@ -158,7 +149,10 @@ export default function Login() {
   };
 
   const handleForgotPassword = () => {
-    router.push("/forgot-password");
+    toast.success("لینک بازیابی رمز عبور به شماره شما ارسال شد", {
+      duration: 4000,
+      position: "top-center",
+    });
   };
 
   const handleSocialLogin = (provider) => {
@@ -191,27 +185,27 @@ export default function Login() {
       />
 
       <div
-        className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 font-vazirmatn"
+        className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-10 px-4 sm:px-6 lg:px-8 font-vazirmatn"
         dir="rtl"
       >
         <div className="max-w-lg w-full">
           {/* Combined Card with Header Background */}
           <div className="bg-white shadow-2xl rounded-2xl overflow-hidden border border-gray-100">
             {/* Header Section with Background */}
-            <div className="bg-gradient-to-r from-blue-600 to-purple-600 py-8 px-6 text-center text-white">
+            <div className="bg-gradient-to-r from-sky-500 to-blue-600 py-8 px-6 text-center text-white">
               <div className="flex justify-center mb-4">
                 <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center backdrop-blur-sm border border-white/30">
-                  <FaUser className="w-8 h-8 text-white" />
+                  <FaStore className="w-8 h-8 text-white" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold mb-2">ورود به حساب کاربری</h2>
+              <h2 className="text-2xl font-bold mb-2">ورود به پنل فروشندگان</h2>
               <p className="text-blue-100 text-sm">
-                خوش آمدید! لطفا اطلاعات حساب خود را وارد کنید
+                به پنل مدیریت فروشگاه خود خوش آمدید
               </p>
             </div>
 
             {/* Login Form */}
-            <div className="py-6 px-6 sm:px-8">
+            <div className="py-8 px-6 sm:px-8">
               <form className="space-y-5" onSubmit={handleSubmit}>
                 {/* Phone Field */}
                 <div>
@@ -233,7 +227,7 @@ export default function Login() {
                       required
                       value={formData.phone}
                       onChange={handleChange}
-                      className="appearance-none block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right"
+                      className="appearance-none block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-transparent transition-all duration-200 text-right"
                       placeholder="0912xxxxxxx"
                       dir="ltr"
                       maxLength={11}
@@ -264,7 +258,7 @@ export default function Login() {
                       required
                       value={formData.password}
                       onChange={handleChange}
-                      className="appearance-none block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-right"
+                      className="appearance-none block w-full pl-10 pr-12 py-3 border border-gray-300 rounded-xl shadow-sm placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-sky-500 focus:border-transparent transition-all duration-200 text-right"
                       placeholder="رمز عبور خود را وارد کنید"
                       dir="ltr"
                     />
@@ -286,14 +280,14 @@ export default function Login() {
                     <button
                       type="button"
                       onClick={togglePasswordVisibility}
-                      className="text-xs text-gray-500 hover:text-blue-600 transition-colors duration-200 flex items-center"
+                      className="text-xs text-gray-500 hover:text-green-600 transition-colors duration-200 flex items-center"
                     >
                       {showPassword ? "پنهان کردن رمز عبور" : "نمایش رمز عبور"}
                     </button>
                     <button
                       type="button"
                       onClick={handleForgotPassword}
-                      className="text-xs text-blue-600 hover:text-blue-500 transition-colors duration-200"
+                      className="text-xs text-blue-600 hover:text-green-500 transition-colors duration-200"
                     >
                       رمز عبور خود را فراموش کرده اید؟
                     </button>
@@ -309,7 +303,7 @@ export default function Login() {
                       type="checkbox"
                       checked={rememberMe}
                       onChange={(e) => setRememberMe(e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
                     />
                     <label
                       htmlFor="remember-me"
@@ -325,10 +319,10 @@ export default function Login() {
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all duration-200 ${
+                    className={`w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-all duration-200 ${
                       isSubmitting
                         ? "bg-gray-400 cursor-not-allowed"
-                        : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 hover:shadow-lg transform hover:-translate-y-0.5"
+                        : "bg-gradient-to-r from-sky-400 to-blue-600 hover:from-sky-600 hover:to-blue-800 hover:shadow-lg transform hover:-translate-y-0.5"
                     }`}
                   >
                     {isSubmitting ? (
@@ -339,7 +333,7 @@ export default function Login() {
                     ) : (
                       <>
                         <FaSignInAlt className="ml-2" />
-                        ورود به حساب کاربری
+                        ورود به پنل فروشندگان
                       </>
                     )}
                   </button>
@@ -383,15 +377,15 @@ export default function Login() {
                 {/* Register Link */}
                 <div className="text-center pt-4 border-t border-gray-200">
                   <p className="text-sm text-gray-600 mb-3">
-                    حساب کاربری ندارید؟
+                    حساب فروشنده ندارید؟
                   </p>
                   <button
                     type="button"
                     onClick={handleRegisterRedirect}
-                    className="w-full inline-flex justify-center items-center py-3 px-4 border-2 border-blue-100 hover:border-blue-300 rounded-xl text-blue-600 hover:text-blue-700 font-medium transition-all duration-200 hover:shadow-md bg-blue-50 hover:bg-blue-100"
+                    className="w-full inline-flex justify-center items-center py-3 px-4 border-2 border-green-100 hover:border-green-300 rounded-xl text-green-600 hover:text-green-700 font-medium transition-all duration-200 hover:shadow-md bg-green-50 hover:bg-green-100"
                   >
                     <FaUserPlus className="ml-2 h-5 w-5" />
-                    ایجاد حساب کاربری جدید
+                    ثبت نام فروشنده جدید
                   </button>
                 </div>
               </form>
@@ -402,11 +396,11 @@ export default function Login() {
           <div className="text-center mt-6">
             <p className="text-xs text-gray-500">
               با ورود به حساب، با{" "}
-              <button className="text-blue-600 hover:text-blue-500">
+              <button className="text-green-600 hover:text-green-500">
                 شرایط استفاده
               </button>{" "}
               و{" "}
-              <button className="text-blue-600 hover:text-blue-500">
+              <button className="text-green-600 hover:text-green-500">
                 حریم خصوصی
               </button>{" "}
               موافقت می‌کنید

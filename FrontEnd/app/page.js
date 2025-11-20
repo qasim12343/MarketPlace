@@ -9,6 +9,8 @@ import {
   FaSignOutAlt,
 } from "react-icons/fa";
 
+const BASE_API = `${process.env.NEXT_PUBLIC_API_URL}`;
+
 const HomePage = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userData, setUserData] = useState(null);
@@ -20,14 +22,14 @@ const HomePage = () => {
   }, []);
 
   const checkLoginStatus = () => {
-    const token = localStorage.getItem("token");
-    const user = localStorage.getItem("user");
+    const token = localStorage.getItem("accessToken");
+    const user = localStorage.getItem("phone");
 
     if (token) {
       setIsLoggedIn(true);
       if (user) {
         try {
-          setUserData(JSON.parse(user));
+          setUserData(user);
         } catch (error) {
           console.error("Error parsing user data:", error);
         }
@@ -38,11 +40,11 @@ const HomePage = () => {
   const fetchUserInfo = async () => {
     setIsLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      const Id = localStorage.getItem("ID");
+      const token = localStorage.getItem("accessToken");
+      const Id = localStorage.getItem("phone");
 
       // Replace with your actual API endpoint
-      const response = await fetch(`http://127.0.0.1:8000/api/users/${Id}/`, {
+      const response = await fetch(`${BASE_API}/store-owners/${Id}/`, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -51,8 +53,10 @@ const HomePage = () => {
       });
 
       if (response.ok) {
+        console.log(response);
         const userInfo = await response.json();
         setUserData(userInfo);
+        console.log(userInfo);
         localStorage.setItem("user", JSON.stringify(userInfo));
 
         // Show success message
@@ -69,7 +73,7 @@ const HomePage = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("token");
+    localStorage.removeItem("accessToken");
     localStorage.removeItem("user");
     setIsLoggedIn(false);
     setUserData(null);
@@ -78,6 +82,9 @@ const HomePage = () => {
 
   const handleLogin = () => {
     router.push("/auth/user-login");
+  };
+  const handleStoreLogin = () => {
+    router.push("/auth/owner-login");
   };
 
   return (
@@ -111,13 +118,23 @@ const HomePage = () => {
             </button>
           </div>
         ) : (
-          <button
-            onClick={handleLogin}
-            className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl"
-          >
-            <FaSignInAlt className="w-4 h-4" />
-            <span>ورود به حساب کاربری</span>
-          </button>
+          <div className="gap-8 flex justify-center items-center">
+            <button
+              onClick={handleLogin}
+              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl"
+            >
+              <FaSignInAlt className="w-4 h-4" />
+              <span>ورود به حساب کاربری</span>
+            </button>
+
+            <button
+              onClick={handleStoreLogin}
+              className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-2xl shadow-lg transition-all duration-200 hover:shadow-xl"
+            >
+              <FaSignInAlt className="w-4 h-4" />
+              <span>ورود به حساب فروشگاه</span>
+            </button>
+          </div>
         )}
       </div>
 
