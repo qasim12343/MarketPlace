@@ -1,16 +1,28 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
 from .models import Customer, StoreOwner
 from .serializers import CustomerSerializer, StoreOwnerSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin
 
 
+
 class CustomerViewSet(viewsets.ModelViewSet):
     queryset = Customer.objects.all().order_by('-created_at')
     serializer_class = CustomerSerializer
     lookup_field = 'phone'
+
+    def get_object(self):
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value == 'me':
+            if not self.request.user.is_authenticated:
+                raise PermissionDenied("Authentication required")
+            if self.request.user.user_type != 'customer':
+                raise PermissionDenied("Not a customer")
+            return self.request.user
+        return super().get_object()
 
     def get_permissions(self):
         if self.action in ['create']:
@@ -21,7 +33,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
             return [IsSelfOrAdmin()]
         return [permissions.IsAuthenticated()]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response({'detail': 'created successfully'}, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='upload-image')
+
     def upload_image(self, request, pk=None):
         user = self.get_object()
         file_obj = request.FILES.get('file')
@@ -63,7 +82,22 @@ class StoreOwnerViewSet(viewsets.ModelViewSet):
     serializer_class = StoreOwnerSerializer
     lookup_field = 'phone'
 
+    def get_object(self):
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value == 'me':
+            if not self.request.user.is_authenticated:
+                raise PermissionDenied("Authentication required")
+            if self.request.user.user_type != 'store_owner':
+                raise PermissionDenied("Not a store owner")
+            try:
+                return StoreOwner.objects.get(id=self.request.user.id)
+            except StoreOwner.DoesNotExist:
+                raise PermissionDenied("Store owner not found")
+        return super().get_object()
+
+
     def get_permissions(self):
+
         """Set permissions based on action"""
         if self.action in ['create']:
             # Anyone can register as a store owner
@@ -71,8 +105,8 @@ class StoreOwnerViewSet(viewsets.ModelViewSet):
         if self.action in ['list']:
             # Only admins can list all store owners
             return [IsAdminRole()]
-        if self.action in ['retrieve', 'update', 'partial_update', 'destroy', 
-                          'upload_profile_image', 'remove_profile_image', 
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy',
+                          'upload_profile_image', 'remove_profile_image',
                           'upload_store_logo', 'remove_store_logo',
                           'profile_image_info', 'store_logo_info',
                           'download_profile_image', 'download_store_logo']:
@@ -80,7 +114,14 @@ class StoreOwnerViewSet(viewsets.ModelViewSet):
             return [IsSelfOrAdmin()]
         return [permissions.IsAuthenticated()]
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        return Response({'detail': 'created successfully'}, status=status.HTTP_201_CREATED)
+
     # Profile Image Actions
+
     @action(detail=True, methods=['post'], url_path='upload-profile-image')
     def upload_profile_image(self, request, pk=None):
         """Upload profile image for store owner"""
@@ -271,4 +312,3 @@ class StoreOwnerViewSet(viewsets.ModelViewSet):
             'detail': 'Store rating updated successfully',
             'store_rating': store_owner.store_rating
         })
-
