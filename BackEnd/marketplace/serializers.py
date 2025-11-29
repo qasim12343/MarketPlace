@@ -107,7 +107,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'sizes',
             'colors',
             'tags',
-            'images',
+            'image_urls',
             'status',
             'views',
             'sales_count',
@@ -145,7 +145,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def get_images_count(self, obj):
         """Return number of images"""
-        return len(obj.images) if isinstance(obj.images, list) else 0
+        return len(obj.image_urls) if isinstance(obj.image_urls, list) else 0
 
     def validate_sku(self, value):
         """Validate SKU uniqueness per store owner"""
@@ -259,7 +259,7 @@ class ProductSerializer(serializers.ModelSerializer):
         # Update fields
         for field in [
             'title', 'description', 'sku', 'price', 'compare_price',
-            'stock', 'category', 'sizes', 'colors', 'tags', 'images',
+            'stock', 'category', 'sizes', 'colors', 'tags', 'image_urls',
             'status', 'rating'
         ]:
             if field in validated_data:
