@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Customer, StoreOwner
+from .models import Customer, StoreOwner, Product
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -76,6 +76,183 @@ class CustomerSerializer(serializers.ModelSerializer):
         password = self.initial_data.get('password')
         if password:
             instance.set_password(password)
+        instance.save()
+        return instance
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    """Serializer for Product model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    store_owner = serializers.SerializerMethodField(read_only=True)
+
+    # Computed fields
+    is_in_stock = serializers.ReadOnlyField()
+    is_low_stock = serializers.ReadOnlyField()
+    discount_percentage = serializers.ReadOnlyField()
+    images_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'store_owner',
+            'title',
+            'description',
+            'sku',
+            'price',
+            'compare_price',
+            'stock',
+            'category',
+            'sizes',
+            'colors',
+            'tags',
+            'images',
+            'status',
+            'views',
+            'sales_count',
+            'rating',
+            'created_at',
+            'updated_at',
+            'is_in_stock',
+            'is_low_stock',
+            'discount_percentage',
+            'images_count',
+        ]
+        read_only_fields = [
+            'id',
+            'store_owner',
+            'views',
+            'sales_count',
+            'created_at',
+            'updated_at',
+            'is_in_stock',
+            'is_low_stock',
+            'discount_percentage',
+            'images_count',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_store_owner(self, obj):
+        """Return store owner basic info"""
+        return {
+            'id': str(obj.store_owner.id),
+            'store_name': obj.store_owner.store_name,
+            'full_name': obj.store_owner.full_name,
+        }
+
+    def get_images_count(self, obj):
+        """Return number of images"""
+        return len(obj.images) if isinstance(obj.images, list) else 0
+
+    def validate_sku(self, value):
+        """Validate SKU uniqueness per store owner"""
+        store_owner = self.context.get('request').user if self.context.get('request') else None
+        if store_owner and isinstance(store_owner, StoreOwner):
+            # Check uniqueness for create or update
+            query = Product.objects.filter(store_owner=store_owner, sku=value)
+            if self.instance:
+                query = query.exclude(id=self.instance.id)
+            if query.exists():
+                raise serializers.ValidationError("این کد محصول قبلاً برای این فروشگاه استفاده شده است")
+
+        if not value or len(value.strip()) == 0:
+            raise serializers.ValidationError("کد محصول الزامی است")
+
+        return value.strip()
+
+    def validate_price(self, value):
+        """Validate price is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("قیمت باید بزرگ‌تر از صفر باشد")
+        return value
+
+    def validate_compare_price(self, value):
+        """Validate compare price"""
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("قیمت مقایسه باید بزرگ‌تر از صفر باشد")
+        return value
+
+    def validate_stock(self, value):
+        """Validate stock is not negative"""
+        if value < 0:
+            raise serializers.ValidationError("موجودی نمی‌تواند منفی باشد")
+        return value
+
+    def validate_sizes(self, value):
+        """Validate sizes is a list of strings"""
+        if value and not isinstance(value, list):
+            raise serializers.ValidationError("سایزها باید یک لیست از رشته‌ها باشد")
+        if value:
+            for size in value:
+                if not isinstance(size, str):
+                    raise serializers.ValidationError("هر سایز باید یک رشته باشد")
+        return value
+
+    def validate_colors(self, value):
+        """Validate colors is a list of strings"""
+        if value and not isinstance(value, list):
+            raise serializers.ValidationError("رنگ‌ها باید یک لیست از رشته‌ها باشد")
+        if value:
+            for color in value:
+                if not isinstance(color, str):
+                    raise serializers.ValidationError("هر رنگ باید یک رشته باشد")
+        return value
+
+    def validate_tags(self, value):
+        """Validate tags is a list of strings"""
+        if value and not isinstance(value, list):
+            raise serializers.ValidationError("برچسب‌ها باید یک لیست از رشته‌ها باشد")
+        if value:
+            for tag in value:
+                if not isinstance(tag, str):
+                    raise serializers.ValidationError("هر برچسب باید یک رشته باشد")
+        return value
+
+    def validate_rating(self, value):
+        """Validate rating structure"""
+        if value and not isinstance(value, dict):
+            raise serializers.ValidationError("امتیاز باید یک شیء باشد")
+
+        if value:
+            if 'average' in value and (value['average'] < 0 or value['average'] > 5):
+                raise serializers.ValidationError("میانگین امتیاز باید بین 0 تا 5 باشد")
+            if 'count' in value and value['count'] < 0:
+                raise serializers.ValidationError("تعداد امتیازها نمی‌تواند منفی باشد")
+
+        return value
+
+    def create(self, validated_data):
+        """Create a new product"""
+        # Get store owner from context
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        store_owner = request.user
+        if not isinstance(store_owner, StoreOwner):
+            raise serializers.ValidationError("فقط صاحبان فروشگاه می‌توانند محصول ایجاد کنند")
+
+        # Set store owner
+        validated_data['store_owner'] = store_owner
+
+        # Create product
+        product = Product.objects.create(**validated_data)
+        return product
+
+    def update(self, instance, validated_data):
+        """Update product instance"""
+        # Update fields
+        for field in [
+            'title', 'description', 'sku', 'price', 'compare_price',
+            'stock', 'category', 'sizes', 'colors', 'tags', 'images',
+            'status', 'rating'
+        ]:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+
         instance.save()
         return instance
 

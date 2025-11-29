@@ -2,7 +2,7 @@ from django.db import models
 from django_mongodb_backend.fields import ObjectIdAutoField
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
-from django.core.validators import RegexValidator, MinLengthValidator, MaxLengthValidator
+from django.core.validators import RegexValidator, MinLengthValidator, MaxLengthValidator, MinValueValidator
 from django.utils import timezone
 
 
@@ -554,3 +554,255 @@ class StoreOwner(BaseUser):
         """Update active products count"""
         self.active_products_count = count
         self.save(update_fields=["active_products_count"])
+
+
+class Product(models.Model):
+    """
+    Product model representing items sold by store owners.
+    Each product belongs to a store owner.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        INACTIVE = "inactive", "Inactive"
+        DRAFT = "draft", "Draft"
+        OUT_OF_STOCK = "out_of_stock", "Out of Stock"
+
+    class Category(models.TextChoices):
+        MEN = "men", "Men"
+        WOMEN = "women", "Women"
+        KIDS = "kids", "Kids"
+        BABY = "baby", "Baby"
+
+    # Foreign Key to StoreOwner
+    store_owner = models.ForeignKey(
+        StoreOwner,
+        on_delete=models.CASCADE,
+        related_name='products',
+        help_text="فروشنده صاحب محصول"
+    )
+
+    # Basic Product Information
+    title = models.CharField(
+        max_length=255,
+        help_text="عنوان محصول",
+        error_messages={'required': "عنوان محصول الزامی است"}
+    )
+    description = models.TextField(
+        help_text="توضیحات محصول",
+        error_messages={'required': "توضیحات محصول الزامی است"}
+    )
+    sku = models.CharField(
+        max_length=100,
+        help_text="کد محصول",
+        error_messages={'required': "کد محصول الزامی است"}
+    )
+
+    # Pricing
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+        help_text="قیمت محصول",
+        error_messages={
+            'required': "قیمت محصول الزامی است",
+            'min_value': "قیمت نمی‌تواند منفی باشد"
+        }
+    )
+    compare_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0)],
+        help_text="قیمت مقایسه (برای تخفیف)",
+        error_messages={'min_value': "قیمت مقایسه نمی‌تواند منفی باشد"}
+    )
+
+    # Inventory
+    stock = models.PositiveIntegerField(
+        default=0,
+        help_text="موجودی محصول",
+        error_messages={'required': "موجودی محصول الزامی است"}
+    )
+
+    # Categorization
+    category = models.CharField(
+        max_length=20,
+        choices=Category.choices,
+        help_text="دسته‌بندی محصول",
+        error_messages={'required': "دسته‌بندی محصول الزامی است"}
+    )
+
+    # Product Attributes (stored as JSON)
+    sizes = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="سایزهای محصول"
+    )
+    colors = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="رنگ‌های محصول"
+    )
+    tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="برچسب‌های محصول"
+    )
+
+    # Product Images (stored as JSON with embedded binary data)
+    images = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="تصاویر محصول"
+    )
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        help_text="وضعیت محصول"
+    )
+
+    # Analytics
+    views = models.PositiveIntegerField(
+        default=0,
+        help_text="تعداد بازدیدها"
+    )
+    sales_count = models.PositiveIntegerField(
+        default=0,
+        help_text="تعداد فروش"
+    )
+
+    # Rating system
+    rating = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="امتیاز محصول (average, count)"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # Compound unique index for SKU per store owner
+        constraints = [
+            models.UniqueConstraint(
+                fields=['store_owner', 'sku'],
+                name='unique_sku_per_store_owner'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['store_owner', 'sku']),
+            models.Index(fields=['store_owner', 'status']),
+            models.Index(fields=['store_owner', 'category']),
+            models.Index(fields=['status']),
+            models.Index(fields=['category']),
+        ]
+        verbose_name = "Product"
+        verbose_name_plural = "Products"
+
+    def __str__(self):
+        return f"{self.title} - {self.sku}"
+
+    def save(self, *args, **kwargs):
+        # Initialize rating if empty
+        if not self.rating:
+            self.rating = {"average": 0, "count": 0}
+        super().save(*args, **kwargs)
+
+    # Product Properties
+    @property
+    def is_in_stock(self):
+        """Check if product is in stock"""
+        return self.stock > 0
+
+    @property
+    def is_low_stock(self):
+        """Check if product is low in stock (10 or fewer items)"""
+        return self.stock > 0 and self.stock <= 10
+
+    @property
+    def discount_percentage(self):
+        """Calculate discount percentage"""
+        if self.compare_price and self.compare_price > self.price:
+            return round((1 - self.price / self.compare_price) * 100)
+        return 0
+
+    # Product Image Methods
+    def add_image(self, image_data):
+        """Add an image to the product"""
+        if not isinstance(self.images, list):
+            self.images = []
+
+        # Create image object
+        image_obj = {
+            'data': image_data.get('data') or image_data.get('buffer'),
+            'contentType': image_data.get('contentType') or image_data.get('mimetype'),
+            'filename': image_data.get('filename') or image_data.get('originalname'),
+            'size': image_data.get('size'),
+            'isPrimary': len(self.images) == 0,  # First image is primary by default
+        }
+        image_obj['uploadedAt'] = timezone.now()
+
+        self.images.append(image_obj)
+        return image_obj
+
+    def remove_image(self, index):
+        """Remove an image by index"""
+        if isinstance(self.images, list) and 0 <= index < len(self.images):
+            removed_image = self.images.pop(index)
+            # If we removed the primary image, make the first remaining image primary
+            if removed_image.get('isPrimary') and self.images:
+                self.images[0]['isPrimary'] = True
+            return removed_image
+        return None
+
+    def get_primary_image(self):
+        """Get the primary image"""
+        if isinstance(self.images, list):
+            for image in self.images:
+                if image.get('isPrimary'):
+                    return image
+        return None
+
+    def set_primary_image(self, index):
+        """Set an image as primary by index"""
+        if isinstance(self.images, list) and 0 <= index < len(self.images):
+            # Reset all images to non-primary
+            for img in self.images:
+                img['isPrimary'] = False
+            # Set the specified image as primary
+            self.images[index]['isPrimary'] = True
+            return True
+        return False
+
+    # Rating Methods
+    def update_rating(self, new_rating):
+        """Update product rating with new rating value"""
+        current = self.rating or {"average": 0, "count": 0}
+        count = current.get("count", 0)
+        average = current.get("average", 0)
+
+        new_count = count + 1
+        new_average = ((average * count) + new_rating) / new_count
+
+        self.rating = {
+            "average": round(new_average, 2),
+            "count": new_count
+        }
+        self.save(update_fields=["rating"])
+
+    # Analytics Methods
+    def increment_views(self):
+        """Increment view count"""
+        self.views += 1
+        self.save(update_fields=["views"])
+
+    def increment_sales(self):
+        """Increment sales count"""
+        self.sales_count += 1
+        self.save(update_fields=["sales_count"])

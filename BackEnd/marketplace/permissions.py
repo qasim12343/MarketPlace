@@ -28,3 +28,43 @@ class IsSelfOrAdmin(BasePermission):
             return True
         return getattr(obj, 'id', None) == getattr(user, 'id', None)
 
+
+class IsStoreOwnerOrAdmin(BasePermission):
+    """
+    Permission check: store owner can manage their own products, admin can manage all.
+    """
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        # Admin can access all
+        if getattr(user, 'is_superuser', False):
+            return True
+        # Store owners can access their own products
+        if hasattr(user, 'user_type') and user.user_type == 'store_owner':
+            return True
+        return False
+
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        # Admin can access all objects
+        if getattr(user, 'is_superuser', False):
+            return True
+        # Store owner can only access their own products
+        if hasattr(user, 'user_type') and user.user_type == 'store_owner':
+            if hasattr(obj, 'store_owner'):
+                return obj.store_owner.id == user.id
+        return False
+
+
+class IsStoreOwner(BasePermission):
+    """
+    Permission check: only store owners can create/manipulate products.
+    """
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        return hasattr(user, 'user_type') and user.user_type == 'store_owner'
