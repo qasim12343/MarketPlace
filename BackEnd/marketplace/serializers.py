@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Customer, StoreOwner, Product
+from .models import Customer, StoreOwner, Product, ProductRating
 
 
 class CustomerSerializer(serializers.ModelSerializer):
@@ -267,6 +267,114 @@ class ProductSerializer(serializers.ModelSerializer):
                 setattr(instance, field, validated_data[field])
 
         instance.save()
+        return instance
+
+
+class ProductRatingSerializer(serializers.ModelSerializer):
+    """Serializer for ProductRating model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    customer = serializers.SerializerMethodField(read_only=True)
+    product = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ProductRating
+        fields = [
+            'id',
+            'customer',
+            'product',
+            'rating',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_customer(self, obj):
+        """Return customer basic info"""
+        return {
+            'id': str(obj.customer.id),
+            'full_name': obj.customer.full_name,
+            'phone': obj.customer.phone,
+        }
+
+    def get_product(self, obj):
+        """Return product basic info"""
+        return {
+            'id': str(obj.product.id),
+            'title': obj.product.title,
+            'sku': obj.product.sku,
+        }
+
+    def validate_rating(self, value):
+        """Validate rating is between 0 and 5"""
+        if not isinstance(value, (int, float, str)):
+            raise serializers.ValidationError("امتیاز باید یک عدد باشد")
+
+        try:
+            rating = float(value)
+            if rating < 0 or rating > 5:
+                raise serializers.ValidationError("امتیاز باید بین 0 تا 5 باشد")
+        except (ValueError, TypeError):
+            raise serializers.ValidationError("امتیاز باید یک عدد معتبر باشد")
+
+        return rating
+
+    def create(self, validated_data):
+        """Create a new product rating"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        user = request.user
+        if not hasattr(user, 'user_type') or user.user_type != 'customer':
+            raise serializers.ValidationError("فقط مشتریان می‌توانند امتیاز دهند")
+
+        # Get product id from URL
+        product_id = self.context.get('product_id')
+        if not product_id:
+            raise serializers.ValidationError("شناسه محصول یافت نشد")
+
+        # Get the Product and Customer instances
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            raise serializers.ValidationError("محصول یافت نشد")
+
+        try:
+            customer = Customer.objects.get(id=user.id)
+        except Customer.DoesNotExist:
+            raise serializers.ValidationError("مشتری یافت نشد")
+
+        # Set customer and product
+        validated_data['customer'] = customer
+        validated_data['product'] = product
+
+        # Create rating - this will handle the unique constraint
+        try:
+            rating = ProductRating.objects.create(**validated_data)
+            # Update product's aggregate rating
+            product.update_rating()
+            return rating
+        except Exception as e:
+            if 'unique_customer_product_rating' in str(e):
+                raise serializers.ValidationError("شما قبلاً به این محصول امتیاز داده‌اید")
+            raise serializers.ValidationError("خطا در ایجاد امتیاز")
+
+    def update(self, instance, validated_data):
+        """Update rating instance"""
+        # Only allow updating rating value
+        if 'rating' in validated_data:
+            instance.rating = validated_data['rating']
+            instance.save()
+            # Update product's aggregate rating
+            instance.product.update_rating()
         return instance
 
 

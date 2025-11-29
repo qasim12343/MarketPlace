@@ -3,8 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
-from .models import Customer, StoreOwner, Product
-from .serializers import CustomerSerializer, StoreOwnerSerializer, ProductSerializer
+from .models import Customer, StoreOwner, Product, ProductRating
+from .serializers import CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -358,8 +358,8 @@ class ProductViewSet(viewsets.ModelViewSet):
         if self.action in ['increment_views']:
             # Anyone can view products (increment view count)
             return [permissions.AllowAny()]
-        if self.action in ['update_rating']:
-            # Only customers and admins can rate
+        if self.action in ['rate_product', 'get_my_rating', 'update_my_rating']:
+            # Only customers and admins can rate products
             return [IsCustomerOrAdmin()]
         return [permissions.IsAuthenticated()]
 
@@ -460,37 +460,96 @@ class ProductViewSet(viewsets.ModelViewSet):
             'detail': 'Primary image set successfully'
         })
 
-    # Rating Action
+    # Rating Actions
     @action(detail=True, methods=['post'], url_path='rate')
-    def update_rating(self, request, pk=None):
-        """Add a rating to the product"""
+    def rate_product(self, request, pk=None):
+        """Add a rating to the product (customers can rate once per product)"""
         product = self.get_object()
-        rating = request.data.get('rating')
 
-        if not rating:
+        serializer = ProductRatingSerializer(
+            data=request.data,
+            context={'request': request, 'product_id': pk}
+        )
+
+        if serializer.is_valid():
+            try:
+                rating_obj = serializer.save()
+                product.refresh_from_db()  # Refresh to get updated rating
+                return Response({
+                    'detail': 'Product rating added successfully',
+                    'rating': product.rating,
+                    'your_rating': rating_obj.rating
+                }, status=status.HTTP_201_CREATED)
+            except Exception as e:
+                return Response(
+                    {'detail': str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'], url_path='my-rating')
+    def get_my_rating(self, request, pk=None):
+        """Get current user's rating for this product"""
+        product = self.get_object()
+        user = request.user
+
+        if not hasattr(user, 'user_type') or user.user_type != 'customer':
             return Response(
-                {'detail': 'rating is required'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'detail': 'Only customers can view their ratings'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
         try:
-            rating = float(rating)
-            if rating < 0 or rating > 5:
-                return Response(
-                    {'detail': 'Rating must be between 0 and 5'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        except (ValueError, TypeError):
+            customer = Customer.objects.get(id=user.id)
+            rating = ProductRating.objects.get(customer=customer, product=product)
+            serializer = ProductRatingSerializer(rating, context={'request': request})
+            return Response(serializer.data)
+        except (Customer.DoesNotExist, ProductRating.DoesNotExist):
             return Response(
-                {'detail': 'Invalid rating value'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'detail': 'You have not rated this product yet'},
+                status=status.HTTP_404_NOT_FOUND
             )
 
-        product.update_rating(rating)
-        return Response({
-            'detail': 'Product rating updated successfully',
-            'rating': product.rating
-        })
+    @action(detail=True, methods=['put', 'patch'], url_path='my-rating')
+    def update_my_rating(self, request, pk=None):
+        """Update current user's rating for this product"""
+        product = self.get_object()
+        user = request.user
+
+        if not hasattr(user, 'user_type') or user.user_type != 'customer':
+            return Response(
+                {'detail': 'Only customers can update their ratings'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            customer = Customer.objects.get(id=user.id)
+            rating_obj = ProductRating.objects.get(customer=customer, product=product)
+
+            serializer = ProductRatingSerializer(
+                rating_obj,
+                data=request.data,
+                partial=(request.method == 'PATCH'),
+                context={'request': request}
+            )
+
+            if serializer.is_valid():
+                serializer.save()
+                product.refresh_from_db()  # Refresh to get updated rating
+                return Response({
+                    'detail': 'Product rating updated successfully',
+                    'rating': product.rating,
+                    'your_rating': serializer.instance.rating
+                })
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except (Customer.DoesNotExist, ProductRating.DoesNotExist):
+            return Response(
+                {'detail': 'You have not rated this product yet'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
     # Analytics Action
     @action(detail=True, methods=['post'], url_path='view')

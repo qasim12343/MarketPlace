@@ -2,7 +2,7 @@ from django.db import models
 from django_mongodb_backend.fields import ObjectIdAutoField
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
-from django.core.validators import RegexValidator, MinLengthValidator, MaxLengthValidator, MinValueValidator
+from django.core.validators import RegexValidator, MinLengthValidator, MaxLengthValidator, MinValueValidator, MaxValueValidator
 
 
 phone_validator = RegexValidator(
@@ -505,6 +505,8 @@ class ProductImage(models.Model):
         super().save(*args, **kwargs)
 
 
+
+
 class Product(models.Model):
     """
     Product model representing items sold by store owners.
@@ -722,20 +724,34 @@ class Product(models.Model):
             return False
 
     # Rating Methods
-    def update_rating(self, new_rating):
-        """Update product rating with new rating value"""
-        current = self.rating or {"average": 0, "count": 0}
-        count = current.get("count", 0)
-        average = current.get("average", 0)
-
-        new_count = count + 1
-        new_average = ((average * count) + new_rating) / new_count
+    def update_rating(self):
+        """Recalculate product rating based on all individual ratings"""
+        ratings = self.ratings.all()
+        if ratings:
+            ratings_list = [r.rating for r in ratings]
+            average = sum(ratings_list) / len(ratings_list)
+            count = len(ratings_list)
+        else:
+            average = 0
+            count = 0
 
         self.rating = {
-            "average": round(new_average, 2),
-            "count": new_count
+            "average": round(float(average), 2),
+            "count": count
         }
         self.save(update_fields=["rating"])
+
+    def add_rating(self, customer, rating_value):
+        """Add a new rating from a customer"""
+        # Create the rating (will raise IntegrityError if already exists due to unique constraint)
+        ProductRating.objects.create(
+            customer=customer,
+            product=self,
+            rating=rating_value
+        )
+        # Recalculate aggregate rating
+        self.update_rating()
+        return self
 
     # Analytics Methods
     def increment_views(self):
@@ -747,3 +763,54 @@ class Product(models.Model):
         """Increment sales count"""
         self.sales_count += 1
         self.save(update_fields=["sales_count"])
+
+class ProductRating(models.Model):
+    """
+    Product Rating model for storing individual customer ratings for products.
+    Each customer can rate each product only once.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name='product_ratings',
+        help_text="مشتری که امتیاز داده است"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='ratings',
+        help_text="محصول مورد امتیاز"
+    )
+    rating = models.DecimalField(
+        max_digits=2,
+        decimal_places=1,
+        validators=[MinValueValidator(0), MaxValueValidator(5)],
+        help_text="امتیاز داده شده (0-5)",
+        error_messages={
+            'min_value': "امتیاز نمی‌تواند کمتر از 0 باشد",
+            'max_value': "امتیاز نمی‌تواند بیشتر از 5 باشد"
+        }
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Product Rating"
+        verbose_name_plural = "Product Ratings"
+        # Unique constraint: each customer can rate each product only once
+        constraints = [
+            models.UniqueConstraint(
+                fields=['customer', 'product'],
+                name='unique_customer_product_rating'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['customer', 'product']),
+            models.Index(fields=['product', 'rating']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.customer.full_name} rated {self.product.title}: {self.rating}"
