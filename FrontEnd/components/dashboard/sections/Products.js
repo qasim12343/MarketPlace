@@ -257,11 +257,13 @@ export default function Products() {
         },
       });
 
+
       if (storeResponse.ok) {
         const storeData = await storeResponse.json();
         console.log("📦 Store owner data:", storeData);
 
         setCurrentStore(storeData);
+
         await fetchProducts();
       } else {
         toast.error("❌ خطا در دریافت اطلاعات فروشگاه");
@@ -290,7 +292,7 @@ export default function Products() {
       if (response.ok) {
         const result = await response.json();
         console.log("📦 Products data:", result);
-
+        
         // Handle different Django response formats
         let productsData = [];
         if (Array.isArray(result)) {
@@ -426,62 +428,45 @@ export default function Products() {
 
       const formData = new FormData();
 
-      // // 1. Fix price format - remove commas
-      // const cleanPrice = data.price.replace(/,/g, '');
-      // formData.append("title", data.title);
-      // formData.append("description", data.description);
-      // formData.append("sku", data.sku);
-      // formData.append("price", cleanPrice);
-      
-      // if (data.compare_price) {
-      //   const cleanComparePrice = data.compare_price.replace(/,/g, '');
-      //   formData.append("compare_price", cleanComparePrice);
-      // }
-      
-      // formData.append("stock", data.stock);
-      // formData.append("category", selectedMainCategory);
+      // 1. Fix price format - remove commas
+      const cleanPrice = data.price.replace(/,/g, '');
+      formData.append("title", data.title);
+      formData.append("description", data.description);
+      formData.append("sku", data.sku);
+      formData.append("price", cleanPrice);
 
-      // // 2. Append sizes and colors as actual arrays, not JSON strings
-      // if (selectedSizes.length > 0) {
-      //   // Append each size individually
-      //   selectedSizes.forEach((size, index) => {
-      //     formData.append(`sizes[${index}]`, size);
-      //   });
-      // }
-      
-      // if (selectedColors.length > 0) {
-      //   // Append each color individually
-      //   selectedColors.forEach((color, index) => {
-      //     formData.append(`colors[${index}]`, color);
-      //   });
-      // }
+      if (data.compare_price) {
+        const cleanComparePrice = data.compare_price.replace(/,/g, '');
+        formData.append("compare_price", cleanComparePrice);
+      }
 
-      // 3. Handle images - mark first as primary
-      productImages.forEach((image, index) => {
+      formData.append("stock", data.stock);
+      formData.append("category", selectedMainCategory);
+
+      // 2. Append sizes and colors as JSON strings
+      if (selectedSizes.length > 0) {
+        formData.append("sizes", JSON.stringify(selectedSizes));
+      }
+
+      if (selectedColors.length > 0) {
+        formData.append("colors", JSON.stringify(selectedColors));
+      }
+
+      // 3. Append all selected images
+      productImages.forEach((image) => {
         formData.append("images", image.file);
-        // If you want to mark first image as primary
-        if (index === 0) {
-          formData.append("is_primary", "true");
-        }
       });
 
-      // console.log("🔄 Creating product with data:", {
-      //   title: data.title,
-      //   sku: data.sku,
-      //   price: cleanPrice,
-      //   stock: data.stock,
-      //   category: selectedMainCategory,
-      //   sizes: selectedSizes,
-      //   colors: selectedColors,
-      //   imageCount: productImages.length,
-      // });
-
-      formData.append("title", "Test Product");
-      formData.append("description", "Test Description");
-      formData.append("sku", generateSKU());
-      formData.append("price", "1000");  // No commas
-      formData.append("stock", "10");
-      formData.append("category", "men");
+      console.log("🔄 Creating product with data:", {
+        title: data.title,
+        sku: data.sku,
+        price: cleanPrice,
+        stock: data.stock,
+        category: selectedMainCategory,
+        sizes: selectedSizes,
+        colors: selectedColors,
+        imageCount: productImages.length,
+      });
 
       const response = await fetch(`${BASE_API}/products/`, {
         method: "POST",

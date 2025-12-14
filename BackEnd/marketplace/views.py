@@ -367,9 +367,16 @@ class ProductViewSet(viewsets.ModelViewSet):
         return [permissions.IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
+        product_data = request.data
+        product_images = request.FILES.getlist('images')
+        print(product_data)
+        print(product_images)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
+        pr = serializer.save(store_owner=request.user)
+        pr.add_image(product_images)
+        
+        # self.perform_create(serializer)
         return Response('موفقانه ایجاد شد.', status=status.HTTP_201_CREATED)
 
     def perform_create(self, serializer):
@@ -382,24 +389,17 @@ class ProductViewSet(viewsets.ModelViewSet):
         """Add an image to a product"""
         product = self.get_object()
 
-        # Get image data from request
-        image_data = request.data
-        if hasattr(request, 'FILES') and request.FILES.get('file'):
-            # Handle file upload
-            file_obj = request.FILES['file']
-            image_data = {
-                'filename': file_obj.name,
-                'contentType': file_obj.content_type,
-                'data': file_obj.read(),
-                'size': file_obj.size
-            }
+        file_obj = request.FILES.get('file')
+        if not file_obj:
+            return Response({'detail': 'file is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        added_image = product.add_image(image_data)
+        added_image = product.add_image(file_obj)
         product.save()
 
         return Response({
             'detail': 'Image added successfully',
-            'image': added_image
+            'image_id': str(added_image.id),
+            'image_url': added_image.image.url
         })
 
     @action(detail=True, methods=['delete'], url_path=r'remove-image/(?P<image_index>\d+)')
