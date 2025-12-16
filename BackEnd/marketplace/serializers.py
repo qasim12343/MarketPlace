@@ -1,7 +1,25 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Customer, StoreOwner, Product, ProductRating
+from .models import Customer, StoreOwner, Product, ProductRating,ProductImage
 
+
+class ProductImageSerializer(serializers.ModelSerializer):
+    """Serializer for ProductImage model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = ProductImage
+        fields = [
+            'id',
+            'image',
+            'is_primary',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
 
 class CustomerSerializer(serializers.ModelSerializer):
     # Force ObjectId to string for DRF representation
@@ -93,6 +111,7 @@ class ProductSerializer(serializers.ModelSerializer):
     is_low_stock = serializers.ReadOnlyField()
     discount_percentage = serializers.ReadOnlyField()
     images_count = serializers.SerializerMethodField()
+    images = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -119,6 +138,7 @@ class ProductSerializer(serializers.ModelSerializer):
             'is_low_stock',
             'discount_percentage',
             'images_count',
+            'images',
         ]
         read_only_fields = [
             'id',
@@ -135,6 +155,9 @@ class ProductSerializer(serializers.ModelSerializer):
 
     def get_id(self, obj):
         return str(obj.id) if obj.id is not None else None
+    def get_images(self, obj):
+        images = obj.images.all().order_by('-is_primary', 'created_at')
+        return ProductImageSerializer(images, many=True, context=self.context).data
 
     def get_store_owner(self, obj):
         """Return store owner basic info"""

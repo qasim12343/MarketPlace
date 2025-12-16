@@ -677,8 +677,19 @@ class Product(models.Model):
         return 0
 
     # Product Image Methods
-    def add_image(self, image, is_primary=False):
-        """Add an image file to the product"""
+    def add_image(self, images, is_primary=False):
+        """Add image(s) to the product. Can handle single image or list of images."""
+        if isinstance(images, list):
+            added_images = []
+            for i, image in enumerate(images):
+                added = self._add_single_image(image, is_primary if i == 0 else False)
+                added_images.append(added)
+            return added_images
+        else:
+            return self._add_single_image(images, is_primary)
+
+    def _add_single_image(self, image, is_primary=False):
+        """Add a single image file to the product"""
         if is_primary:
             ProductImage.objects.filter(product=self, is_primary=True).update(is_primary=False)
         product_image = ProductImage.objects.create(

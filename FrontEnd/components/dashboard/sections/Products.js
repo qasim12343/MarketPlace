@@ -257,11 +257,13 @@ export default function Products() {
         },
       });
 
+
       if (storeResponse.ok) {
         const storeData = await storeResponse.json();
         console.log("📦 Store owner data:", storeData);
 
         setCurrentStore(storeData);
+
         await fetchProducts();
       } else {
         toast.error("❌ خطا در دریافت اطلاعات فروشگاه");
@@ -290,7 +292,7 @@ export default function Products() {
       if (response.ok) {
         const result = await response.json();
         console.log("📦 Products data:", result);
-
+        
         // Handle different Django response formats
         let productsData = [];
         if (Array.isArray(result)) {
@@ -426,26 +428,31 @@ export default function Products() {
 
       const formData = new FormData();
 
-      // Append text fields according to Django model - using exact field names
+      // 1. Fix price format - remove commas
+      const cleanPrice = data.price.replace(/,/g, '');
       formData.append("title", data.title);
       formData.append("description", data.description);
       formData.append("sku", data.sku);
-      formData.append("price", data.price);
+      formData.append("price", cleanPrice);
+
       if (data.compare_price) {
-        formData.append("compare_price", data.compare_price);
+        const cleanComparePrice = data.compare_price.replace(/,/g, '');
+        formData.append("compare_price", cleanComparePrice);
       }
+
       formData.append("stock", data.stock);
       formData.append("category", selectedMainCategory);
 
-      // Append sizes and colors as JSON arrays
+      // 2. Append sizes and colors as JSON strings
       if (selectedSizes.length > 0) {
         formData.append("sizes", JSON.stringify(selectedSizes));
       }
+
       if (selectedColors.length > 0) {
         formData.append("colors", JSON.stringify(selectedColors));
       }
 
-      // Append images
+      // 3. Append all selected images
       productImages.forEach((image) => {
         formData.append("images", image.file);
       });
@@ -453,7 +460,7 @@ export default function Products() {
       console.log("🔄 Creating product with data:", {
         title: data.title,
         sku: data.sku,
-        price: data.price,
+        price: cleanPrice,
         stock: data.stock,
         category: selectedMainCategory,
         sizes: selectedSizes,
@@ -465,10 +472,11 @@ export default function Products() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          // Don't set Content-Type for FormData - browser will set it with boundary
+          // Don't set Content-Type for FormData
         },
-        body: formData,
+        body: formData
       });
+
 
       if (response.ok) {
         const newProduct = await response.json();
