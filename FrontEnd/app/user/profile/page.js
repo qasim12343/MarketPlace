@@ -2,6 +2,7 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import toast from "react-hot-toast";
 import {
   FiUser,
   FiMail,
@@ -14,7 +15,13 @@ import {
   FiUpload,
   FiCheck,
   FiX,
+  FiLock,
+  FiBell,
+  FiGlobe,
+  FiShield,
 } from "react-icons/fi";
+
+const BASE_API = process.env.NEXT_PUBLIC_API_URL;
 
 export default function UserProfile() {
   const router = useRouter();
@@ -25,48 +32,113 @@ export default function UserProfile() {
   const [isSaving, setIsSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
+    first_name: "",
+    last_name: "",
     email: "",
     phone: "",
     city: "",
-    postCode: "",
+    post_code: "",
     birthday: "",
-    profileImage: "",
   });
+  const [profileImagePreview, setProfileImagePreview] = useState(null);
 
   useEffect(() => {
     checkAuth();
   }, []);
 
+  const getAuthToken = () => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("accessToken");
+    }
+    return null;
+  };
+
   const checkAuth = async () => {
     try {
-      const response = await fetch("/api/auth/user-session");
-      const result = await response.json();
-
-      if (!result.isAuthenticated || !result.user) {
-        router.push("/user-login");
+      const token = getAuthToken();
+      if (!token) {
+        router.push("/auth/login");
         return;
       }
 
-      setUser(result.user);
-      setFormData({
-        firstName: result.user.firstName || "",
-        lastName: result.user.lastName || "",
-        email: result.user.email || "",
-        phone: result.user.phone || "",
-        city: result.user.city || "",
-        postCode: result.user.postCode || "",
-        birthday: result.user.birthday
-          ? new Date(result.user.birthday).toISOString().split("T")[0]
-          : "",
-        profileImage: result.user.profileImage || "",
+      const response = await fetch(`${BASE_API}/users/me/`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       });
+
+      if (!response.ok) {
+        throw new Error("Not authenticated");
+      }
+
+      const userData = await response.json();
+      console.log("User data:", userData);
+
+      setUser(userData);
+      setFormData({
+        first_name: userData.first_name || "",
+        last_name: userData.last_name || "",
+        email: userData.email || "",
+        phone: userData.phone || "",
+        city: userData.city || "",
+        post_code: userData.post_code || "",
+        birthday: userData.birthday
+          ? new Date(userData.birthday).toISOString().split("T")[0]
+          : "",
+      });
+
+      // Set profile image preview if exists
+      if (userData.profile_image || userData.profile_image_info) {
+        const imageUrl = getImageUrl(
+          userData.profile_image_info || userData.profile_image
+        );
+        setProfileImagePreview(imageUrl);
+      }
     } catch (error) {
       console.error("Auth check error:", error);
-      router.push("/user-login");
+      toast.error("خطا در بارگذاری اطلاعات کاربر");
+      router.push("/auth/login");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const getImageUrl = (imageInfo) => {
+    if (!imageInfo) return null;
+
+    try {
+      // If it's a blob URL (temporary preview)
+      if (typeof imageInfo === "string" && imageInfo.startsWith("blob:")) {
+        return imageInfo;
+      }
+
+      // If image URL is provided directly by Django
+      if (imageInfo.url) {
+        // Handle relative URLs
+        if (imageInfo.url.startsWith("/")) {
+          // For media URLs (like /media/profile_images/...), use Django base URL without /api
+          if (imageInfo.url.startsWith("/media/")) {
+            const djangoBaseUrl = BASE_API.replace("/api", "");
+            return `${djangoBaseUrl}${imageInfo.url}`;
+          }
+          return `${BASE_API}${imageInfo.url}`;
+        }
+        return imageInfo.url;
+      }
+
+      if (imageInfo.filename) {
+        return `${BASE_API}${imageInfo.filename}`;
+      }
+
+      if (typeof imageInfo === "string" && imageInfo.startsWith("http")) {
+        return imageInfo;
+      }
+
+      return null;
+    } catch (error) {
+      console.error("❌ Error creating image URL:", error);
+      return null;
     }
   };
 
@@ -75,27 +147,63 @@ export default function UserProfile() {
     setIsSaving(true);
 
     try {
-      const response = await fetch("/api/user/profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(formData),
+      const token = getAuthToken();
+      if (!token) {
+        toast.error("لطفا ابتدا وارد شوید");
+        router.push("/auth/login");
+        return;
+      }
+
+      // Prepare data for API
+      const updateData = {
+        first_name: formData.first_name,
+        last_name: formData.last_name,
+        email: formData.email,
+        city: formData.city,
+        post_code: formData.post_code,
+        birthday: formData.birthday,
+      };
+
+      // Remove empty values
+      Object.keys(updateData).forEach((key) => {
+        if (
+          updateData[key] === null ||
+          updateData[key] === undefined ||
+          updateData[key] === ""
+        ) {
+          delete updateData[key];
+        }
       });
 
-      if (response.ok) {
-        setIsEditing(false);
-        const updatedUser = { ...user, ...formData };
-        setUser(updatedUser);
+      const response = await fetch(`${BASE_API}/users/me/`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updateData),
+      });
 
-        // Show success feedback
-        showNotification("پروفایل با موفقیت به روز شد", "success");
-      } else {
-        throw new Error("Update failed");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
+        );
       }
+
+      const result = await response.json();
+
+      // Update user state
+      setUser((prev) => ({
+        ...prev,
+        ...result,
+      }));
+
+      setIsEditing(false);
+      toast.success("✅ پروفایل با موفقیت به‌روزرسانی شد");
     } catch (error) {
       console.error("Error updating profile:", error);
-      showNotification("خطا در به روزرسانی پروفایل", "error");
+      toast.error(error.message || "خطا در به‌روزرسانی پروفایل");
     } finally {
       setIsSaving(false);
     }
@@ -113,43 +221,80 @@ export default function UserProfile() {
     if (!file) return;
 
     // Validate file type and size
-    const validTypes = ["image/jpeg", "image/jpg", "image/png", "image/gif"];
+    const validTypes = [
+      "image/jpeg",
+      "image/jpg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+    ];
     const maxSize = 5 * 1024 * 1024; // 5MB
 
     if (!validTypes.includes(file.type)) {
-      showNotification(
-        "لطفاً یک تصویر معتبر انتخاب کنید (JPG, PNG, GIF)",
-        "error"
-      );
+      toast.error("لطفاً یک تصویر معتبر انتخاب کنید (JPG, PNG, GIF, WEBP)");
       return;
     }
 
     if (file.size > maxSize) {
-      showNotification("حجم تصویر نباید بیشتر از ۵ مگابایت باشد", "error");
+      toast.error("حجم تصویر نباید بیشتر از ۵ مگابایت باشد");
       return;
     }
+
+    // Create temporary preview immediately
+    const previewUrl = URL.createObjectURL(file);
+    setProfileImagePreview(previewUrl);
 
     setUploadingImage(true);
 
     try {
-      const formData = new FormData();
-      formData.append("profileImage", file);
-
-      const response = await fetch("/api/user/upload-profile-image", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setFormData((prev) => ({ ...prev, profileImage: result.imageUrl }));
-        showNotification("تصویر پروفایل با موفقیت آپلود شد", "success");
-      } else {
-        throw new Error("Upload failed");
+      const token = getAuthToken();
+      if (!token) {
+        toast.error("لطفا ابتدا وارد شوید");
+        return;
       }
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(
+        `${BASE_API}/users/me/upload-profile-image/`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Upload failed");
+      }
+
+      const result = await response.json();
+
+      // Update user state with new image data
+      setUser((prev) => ({
+        ...prev,
+        profile_image_info: result.profile_image_info,
+        has_profile_image: true,
+      }));
+
+      // Update preview with actual image URL
+      const imageUrl = getImageUrl(result.profile_image_info);
+      setProfileImagePreview(imageUrl);
+
+      toast.success("✅ تصویر پروفایل با موفقیت آپلود شد");
     } catch (error) {
       console.error("Error uploading image:", error);
-      showNotification("خطا در آپلود تصویر", "error");
+      toast.error(`خطا در آپلود تصویر: ${error.message}`);
+
+      // Revert to previous image on error
+      const oldUrl = user?.profile_image_info
+        ? getImageUrl(user.profile_image_info)
+        : null;
+      setProfileImagePreview(oldUrl);
     } finally {
       setUploadingImage(false);
       // Reset file input
@@ -159,33 +304,68 @@ export default function UserProfile() {
     }
   };
 
-  const triggerFileInput = () => {
-    fileInputRef.current?.click();
+  const removeProfileImage = async () => {
+    if (!confirm("آیا از حذف تصویر پروفایل اطمینان دارید؟")) {
+      return;
+    }
+
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        toast.error("لطفا ابتدا وارد شوید");
+        return;
+      }
+
+      const response = await fetch(
+        `${BASE_API}/users/me/remove-profile-image/`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Delete failed");
+      }
+
+      const result = await response.json();
+
+      // Update user state
+      setUser((prev) => ({
+        ...prev,
+        profile_image_info: null,
+        has_profile_image: false,
+      }));
+
+      setProfileImagePreview(null);
+      toast.success("✅ تصویر پروفایل با موفقیت حذف شد");
+    } catch (error) {
+      console.error("Error removing profile image:", error);
+      toast.error(`خطا در حذف تصویر: ${error.message}`);
+    }
   };
 
-  const showNotification = (message, type = "info") => {
-    // You can replace this with a proper notification system like toast
-    const notification = document.createElement("div");
-    notification.className = `fixed top-4 right-4 z-50 px-6 py-4 rounded-lg shadow-lg transform transition-transform duration-300 ${
-      type === "success"
-        ? "bg-green-500 text-white"
-        : type === "error"
-        ? "bg-red-500 text-white"
-        : "bg-blue-500 text-white"
-    }`;
-    notification.textContent = message;
-
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-      notification.remove();
-    }, 4000);
+  const triggerFileInput = () => {
+    fileInputRef.current?.click();
   };
 
   const getInitials = (firstName, lastName) => {
     return `${firstName?.charAt(0) || ""}${
       lastName?.charAt(0) || ""
     }`.toUpperCase();
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return "ثبت نشده";
+    try {
+      return new Date(dateString).toLocaleDateString("fa-IR");
+    } catch {
+      return "نامعتبر";
+    }
   };
 
   if (loading) {
@@ -218,7 +398,8 @@ export default function UserProfile() {
                 <>
                   <button
                     onClick={() => setIsEditing(false)}
-                    className="flex items-center space-x-2 space-x-reverse px-4 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200"
+                    disabled={isSaving}
+                    className="flex items-center space-x-2 space-x-reverse px-4 py-2 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200 disabled:opacity-50"
                   >
                     <FiX className="w-4 h-4" />
                     <span>انصراف</span>
@@ -226,7 +407,7 @@ export default function UserProfile() {
                   <button
                     onClick={handleSubmit}
                     disabled={isSaving}
-                    className="flex items-center space-x-2 space-x-reverse px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:transform-none"
+                    className="flex items-center space-x-2 space-x-reverse px-6 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 disabled:transform-none disabled:cursor-not-allowed"
                   >
                     {isSaving ? (
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -261,17 +442,27 @@ export default function UserProfile() {
               <div className="text-center mb-6">
                 <div className="relative inline-block">
                   <div className="w-32 h-32 rounded-2xl bg-gradient-to-br from-purple-100 to-blue-100 flex items-center justify-center relative overflow-hidden">
-                    {formData.profileImage ? (
+                    {profileImagePreview ? (
                       <img
-                        src={formData.profileImage}
+                        src={profileImagePreview}
                         alt="Profile"
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          console.error("Profile image load error");
+                          e.target.style.display = "none";
+                          e.target.nextSibling.style.display = "flex";
+                        }}
                       />
-                    ) : (
+                    ) : null}
+                    <div
+                      className={`w-full h-full items-center justify-center ${
+                        profileImagePreview ? "hidden" : "flex"
+                      }`}
+                    >
                       <span className="text-2xl font-bold text-purple-600">
-                        {getInitials(formData.firstName, formData.lastName)}
+                        {getInitials(formData.first_name, formData.last_name)}
                       </span>
-                    )}
+                    </div>
 
                     {/* Upload Overlay */}
                     {isEditing && (
@@ -289,14 +480,29 @@ export default function UserProfile() {
                   </div>
 
                   {isEditing && (
-                    <div className="absolute -bottom-2 -right-2">
+                    <div className="flex justify-center gap-2 mt-4">
                       <button
                         onClick={triggerFileInput}
                         disabled={uploadingImage}
-                        className="bg-purple-600 text-white p-2 rounded-full shadow-lg hover:bg-purple-700 transition-colors duration-200"
+                        className="flex items-center space-x-2 space-x-reverse px-3 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors duration-200 text-sm disabled:opacity-50"
                       >
-                        <FiUpload className="w-4 h-4" />
+                        {uploadingImage ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                        ) : (
+                          <FiUpload className="w-3 h-3" />
+                        )}
+                        <span>تغییر عکس</span>
                       </button>
+
+                      {profileImagePreview && (
+                        <button
+                          onClick={removeProfileImage}
+                          className="flex items-center space-x-2 space-x-reverse px-3 py-2 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors duration-200 text-sm"
+                        >
+                          <FiX className="w-3 h-3" />
+                          <span>حذف</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -310,9 +516,18 @@ export default function UserProfile() {
                 />
 
                 <h2 className="text-xl font-semibold text-gray-900 mt-4">
-                  {formData.firstName} {formData.lastName}
+                  {formData.first_name} {formData.last_name}
                 </h2>
-                <p className="text-gray-500 text-sm mt-1">{formData.email}</p>
+                <p className="text-gray-500 text-sm mt-1">
+                  {formData.email || formData.phone}
+                </p>
+
+                <div className="mt-2">
+                  <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-medium">
+                    عضویت:{" "}
+                    {user?.date_joined ? formatDate(user.date_joined) : "---"}
+                  </span>
+                </div>
               </div>
 
               {/* Quick Stats */}
@@ -324,11 +539,15 @@ export default function UserProfile() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                  <span className="text-sm text-gray-600">عضو از</span>
+                  <span className="text-sm text-gray-600">شماره تماس</span>
                   <span className="text-sm text-gray-900">
-                    {user?.createdAt
-                      ? new Date(user.createdAt).toLocaleDateString("fa-IR")
-                      : "---"}
+                    {formData.phone || "ثبت نشده"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                  <span className="text-sm text-gray-600">شهر</span>
+                  <span className="text-sm text-gray-900">
+                    {formData.city || "ثبت نشده"}
                   </span>
                 </div>
               </div>
@@ -353,14 +572,15 @@ export default function UserProfile() {
                   <div className="space-y-2">
                     <label className="flex items-center text-sm font-medium text-gray-700">
                       <FiUser className="ml-2 w-4 h-4 text-gray-400" />
-                      نام
+                      نام *
                     </label>
                     <input
                       type="text"
-                      name="firstName"
-                      value={formData.firstName}
+                      name="first_name"
+                      value={formData.first_name}
                       onChange={handleChange}
                       disabled={!isEditing}
+                      required
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all duration-200"
                       placeholder="نام خود را وارد کنید"
                     />
@@ -370,14 +590,15 @@ export default function UserProfile() {
                   <div className="space-y-2">
                     <label className="flex items-center text-sm font-medium text-gray-700">
                       <FiUser className="ml-2 w-4 h-4 text-gray-400" />
-                      نام خانوادگی
+                      نام خانوادگی *
                     </label>
                     <input
                       type="text"
-                      name="lastName"
-                      value={formData.lastName}
+                      name="last_name"
+                      value={formData.last_name}
                       onChange={handleChange}
                       disabled={!isEditing}
+                      required
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all duration-200"
                       placeholder="نام خانوادگی خود را وارد کنید"
                     />
@@ -406,15 +627,18 @@ export default function UserProfile() {
                       <FiPhone className="ml-2 w-4 h-4 text-gray-400" />
                       شماره تماس
                     </label>
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleChange}
-                      disabled={!isEditing}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all duration-200"
-                      placeholder="09XXXXXXXXX"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="tel"
+                        value={user?.phone || ""}
+                        disabled
+                        className="flex-1 px-4 py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-500"
+                        placeholder="09XXXXXXXXX"
+                      />
+                      <span className="text-xs text-gray-500 whitespace-nowrap">
+                        (غیرقابل تغییر)
+                      </span>
+                    </div>
                   </div>
 
                   {/* City */}
@@ -442,17 +666,18 @@ export default function UserProfile() {
                     </label>
                     <input
                       type="text"
-                      name="postCode"
-                      value={formData.postCode}
+                      name="post_code"
+                      value={formData.post_code}
                       onChange={handleChange}
                       disabled={!isEditing}
+                      maxLength="10"
                       className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500 transition-all duration-200"
                       placeholder="کد پستی ۱۰ رقمی"
                     />
                   </div>
 
                   {/* Birthday */}
-                  <div className="space-y-2 md:col-span-2">
+                  <div className="space-y-2">
                     <label className="flex items-center text-sm font-medium text-gray-700">
                       <FiCalendar className="ml-2 w-4 h-4 text-gray-400" />
                       تاریخ تولد
@@ -467,6 +692,33 @@ export default function UserProfile() {
                     />
                   </div>
                 </div>
+
+                {isEditing && (
+                  <div className="mt-8 pt-6 border-t border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-500">
+                        پس از ویرایش اطلاعات، دکمه ذخیره را بزنید
+                      </p>
+                      <button
+                        type="submit"
+                        disabled={isSaving}
+                        className="flex items-center space-x-2 space-x-reverse px-8 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:shadow-lg transition-all duration-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isSaving ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            <span>در حال ذخیره...</span>
+                          </>
+                        ) : (
+                          <>
+                            <FiSave className="w-4 h-4" />
+                            <span>ذخیره تغییرات</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </form>
             </div>
 
@@ -474,17 +726,62 @@ export default function UserProfile() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
               {/* Security Card */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-6">
-                <h4 className="font-semibold text-gray-900 mb-4">امنیت</h4>
-                <button className="w-full text-center py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors duration-200">
+                <div className="flex items-center space-x-2 space-x-reverse mb-4">
+                  <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <FiLock className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900">امنیت حساب</h4>
+                    <p className="text-gray-500 text-sm">
+                      تغییر رمز عبور و احراز هویت
+                    </p>
+                  </div>
+                </div>
+                <button className="w-full text-center py-3 border-2 border-purple-500 text-purple-500 hover:bg-purple-50 rounded-xl transition-colors duration-200">
                   تغییر رمز عبور
                 </button>
               </div>
 
               {/* Preferences Card */}
               <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-6">
-                <h4 className="font-semibold text-gray-900 mb-4">تنظیمات</h4>
-                <button className="w-full text-center py-3 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:text-gray-700 hover:border-gray-400 transition-colors duration-200">
+                <div className="flex items-center space-x-2 space-x-reverse mb-4">
+                  <div className="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                    <FiBell className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900">
+                      تنظیمات اعلانات
+                    </h4>
+                    <p className="text-gray-500 text-sm">
+                      مدیریت اعلانات و اطلاع‌رسانی‌ها
+                    </p>
+                  </div>
+                </div>
+                <button className="w-full text-center py-3 border-2 border-blue-500 text-blue-500 hover:bg-blue-50 rounded-xl transition-colors duration-200">
                   تنظیمات اعلانات
+                </button>
+              </div>
+            </div>
+
+            {/* Account Actions */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200/60 p-6 mt-6">
+              <div className="flex items-center space-x-2 space-x-reverse mb-6">
+                <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                  <FiShield className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h4 className="font-semibold text-gray-900">اقدامات حساب</h4>
+                  <p className="text-gray-500 text-sm">
+                    مدیریت پیشرفته حساب کاربری
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button className="py-3 px-4 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors duration-200">
+                  خروج از تمام دستگاه‌ها
+                </button>
+                <button className="py-3 px-4 border border-red-300 text-red-600 rounded-xl hover:bg-red-50 transition-colors duration-200">
+                  غیرفعال کردن حساب
                 </button>
               </div>
             </div>

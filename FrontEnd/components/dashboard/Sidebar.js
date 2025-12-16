@@ -29,7 +29,6 @@ const menuItems = [
     icon: LayoutDashboard,
     color: "text-blue-600",
     gradient: "from-blue-500 to-cyan-500",
-    // notification: 3,
   },
   {
     id: "profile",
@@ -44,7 +43,6 @@ const menuItems = [
     icon: Package,
     color: "text-amber-600",
     gradient: "from-amber-500 to-orange-500",
-    // badge: "۱۲+",
   },
   {
     id: "orders",
@@ -52,7 +50,6 @@ const menuItems = [
     icon: ShoppingBag,
     color: "text-indigo-600",
     gradient: "from-indigo-500 to-blue-500",
-    // notification: 5,
   },
 ];
 
@@ -123,92 +120,213 @@ export default function Sidebar({ currentSection, user }) {
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      const response = await fetch("/api/auth/session", {
-        method: "DELETE",
-        credentials: "include",
+      // Get the token from localStorage
+      const token = localStorage.getItem("accessToken");
+
+      if (!token) {
+        // If no token, just redirect to login
+        console.log("No token found, redirecting to login...");
+        router.push("/auth/login");
+        toast.success("با موفقیت خارج شدید");
+        return;
+      }
+
+      // First, clear local storage
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("user");
+
+      // Clear any session storage if used
+      sessionStorage.clear();
+
+      // Clear cookies
+      document.cookie.split(";").forEach((c) => {
+        document.cookie = c
+          .replace(/^ +/, "")
+          .replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
       });
 
-      if (response.ok) {
-        toast.success("با موفقیت خارج شدید");
-        router.push("/auth/login");
-      } else {
-        throw new Error("Logout failed");
+      // Try to call logout endpoint if available
+      try {
+        const BASE_API = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${BASE_API}/auth/logout/`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          console.warn(
+            "Logout endpoint failed, continuing with client-side logout"
+          );
+        }
+      } catch (error) {
+        console.warn("Logout endpoint error:", error);
+        // Continue with client-side logout even if endpoint fails
       }
+
+      // Redirect to login page
+      toast.success("✅ با موفقیت خارج شدید");
+
+      // Small delay to show success message
+      setTimeout(() => {
+        router.push("/");
+        router.refresh(); // Refresh the page to clear any cached data
+      }, 500);
     } catch (error) {
       console.error("Logout error:", error);
-      toast.error("❌ خطا در خروج از سیستم");
+      // Even if there's an error, clear local storage and redirect
+      localStorage.clear();
+      sessionStorage.clear();
+      toast.error("⚠️ از سیستم خارج شدید");
+      setTimeout(() => {
+        router.push("/auth/login");
+        router.refresh();
+      }, 500);
     } finally {
       setIsLoggingOut(false);
       setShowExitModal(false);
     }
   };
 
-  const getImageUrl = (imageData) => {
-    if (!imageData || !imageData.data) return null;
+  const getImageUrl = (imageInfo) => {
+    if (!imageInfo) return null;
 
     try {
-      // Handle different buffer formats
-      let bufferData;
+      console.log("🖼️ Processing image info in sidebar:", imageInfo);
 
-      if (Buffer.isBuffer(imageData)) {
-        // If it's already a Buffer
-        bufferData = imageData;
-      } else if (imageData.type === "Buffer" && Array.isArray(imageData.data)) {
-        // If it's stored as Buffer object from MongoDB
-        bufferData = Buffer.from(imageData.data);
-      } else {
-        console.warn("Unknown image data format:", imageData);
-        return null;
+      // If image URL is provided directly
+      if (imageInfo.url) {
+        const BASE_API = process.env.NEXT_PUBLIC_API_URL;
+        // Handle relative URLs
+        if (imageInfo.url.startsWith("/")) {
+          // For media URLs
+          if (imageInfo.url.startsWith("/media/")) {
+            const djangoBaseUrl = BASE_API.replace("/api", "");
+            return `${djangoBaseUrl}${imageInfo.url}`;
+          }
+          return `${BASE_API}${imageInfo.url}`;
+        }
+        return imageInfo.url;
       }
 
-      const base64 = bufferData.toString("base64");
-      return `data:${imageData.contentType};base64,${base64}`;
+      // If it's a base64 string from your profile page API
+      if (typeof imageInfo === "string" && imageInfo.startsWith("data:")) {
+        return imageInfo;
+      }
+
+      // If we have filename
+      if (imageInfo.filename) {
+        return `${process.env.NEXT_PUBLIC_API_URL}${imageInfo.filename}`;
+      }
+
+      // Handle MongoDB Buffer data (old schema)
+      if (imageInfo.data && Array.isArray(imageInfo.data)) {
+        try {
+          const base64 = Buffer.from(imageInfo.data).toString("base64");
+          const contentType = imageInfo.contentType || "image/jpeg";
+          return `data:${contentType};base64,${base64}`;
+        } catch (error) {
+          console.error("Error converting buffer to base64:", error);
+          return null;
+        }
+      }
+
+      return null;
     } catch (error) {
-      console.error("Error creating image URL:", error);
+      console.error("❌ Error creating image URL:", error);
       return null;
     }
   };
 
-  const profileImageUrl = user?.sellerProfileImage?.data
-    ? getImageUrl(user.sellerProfileImage)
-    : null;
+  // Get profile image URL based on your API structure
+  const getProfileImageUrl = () => {
+    if (!user) return null;
+
+    // Check different possible image data locations
+    const imageSources = [
+      user.profile_image_info, // From your profile API
+      user.profileImageInfo, // Alternative camelCase
+      user.sellerProfileImage, // Old schema
+      user.profile_image, // Direct field
+    ];
+
+    for (const source of imageSources) {
+      if (source) {
+        const url = getImageUrl(source);
+        if (url) return url;
+      }
+    }
+
+    // Check if user has profile image boolean
+    if (user.has_profile_image && user.profile_image_info) {
+      return getImageUrl(user.profile_image_info);
+    }
+
+    return null;
+  };
+
+  const profileImageUrl = getProfileImageUrl();
 
   // Get user display name based on your schema
   const getUserDisplayName = () => {
-    if (!user) return "";
-    return `${user.first_name || ""} ${user.last_name || ""}`.trim();
+    if (!user) return "کاربر";
+
+    // Try different name fields
+    const name = `${user.first_name || ""} ${user.last_name || ""}`.trim();
+    if (name) return name;
+
+    return user.full_name || user.store_name || user.username || "کاربر";
   };
 
   // Get user contact info
   const getUserContactInfo = () => {
     if (!user) return "";
-    return user.sellerEmail || user.sellerPhone || "";
+    return (
+      user.email || user.phone || user.sellerEmail || user.sellerPhone || ""
+    );
   };
 
   // Get user role based on your schema
   const getUserRole = () => {
     if (!user) return "کاربر";
 
-    if (user.storeType === "multi-vendor") {
+    if (user.store_type === "multi-vendor") {
       return "مدیر سیستم";
-    } else if (user.storeType === "single-vendor") {
+    } else if (user.store_type === "single-vendor") {
       return "مالک فروشگاه";
     }
 
-    return user.sellerStatus === "approved" ? "کاربر تایید شده" : "کاربر";
+    return user.seller_status === "approved" ? "کاربر تایید شده" : "کاربر";
   };
 
   // Get user level based on store type and status
   const getUserLevel = () => {
     if (!user) return "سطح معمولی";
 
-    if (user.storeType === "multi-vendor") {
+    if (user.store_type === "multi-vendor") {
       return "سطح طلایی";
-    } else if (user.storeType === "single-vendor") {
+    } else if (user.store_type === "single-vendor") {
       return "سطح نقره‌ای";
     }
 
     return "سطح معمولی";
+  };
+
+  // Check if user is approved
+  const isUserApproved = () => {
+    return (
+      user?.seller_status === "approved" || user?.sellerStatus === "approved"
+    );
+  };
+
+  // Check if user has multi-vendor store
+  const isMultiVendor = () => {
+    return (
+      user?.store_type === "multi-vendor" || user?.storeType === "multi-vendor"
+    );
   };
 
   return (
@@ -278,16 +396,28 @@ export default function Sidebar({ currentSection, user }) {
                     alt="Profile"
                     className="w-full h-full object-cover"
                     onError={(e) => {
-                      console.error("Profile image load error");
+                      console.error("Profile image failed to load");
                       e.target.style.display = "none";
+                      // Show fallback icon
+                      const parent = e.target.parentElement;
+                      if (parent) {
+                        const fallback =
+                          parent.querySelector(".profile-fallback");
+                        if (fallback) fallback.style.display = "flex";
+                      }
                     }}
                   />
-                ) : (
+                ) : null}
+                <div
+                  className={`w-full h-full items-center justify-center ${
+                    profileImageUrl ? "hidden" : "flex"
+                  } profile-fallback`}
+                >
                   <User className="w-8 h-8 text-white" />
-                )}
+                </div>
               </div>
               <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white shadow-sm"></div>
-              {user?.storeType === "multi-vendor" && (
+              {isMultiVendor() && (
                 <div className="absolute -top-1 -left-1 bg-yellow-500 text-white px-2 py-1 rounded-full text-xs font-bold shadow-lg flex items-center">
                   <Crown className="w-3 h-3 ml-1" />
                   PRO
@@ -306,7 +436,7 @@ export default function Sidebar({ currentSection, user }) {
                 <h3 className="font-bold text-gray-900 text-lg">
                   {getUserDisplayName()}
                 </h3>
-                {user?.sellerStatus === "approved" && (
+                {isUserApproved() && (
                   <BadgeCheck className="w-5 h-5 text-blue-500" />
                 )}
               </div>
@@ -315,10 +445,10 @@ export default function Sidebar({ currentSection, user }) {
                   {getUserContactInfo()}
                 </p>
               </div>
-              {user?.storeName && (
+              {user?.store_name && (
                 <div className="flex items-center justify-center mb-2">
                   <p className="text-blue-600 text-sm font-medium">
-                    {user.storeName}
+                    {user.store_name}
                   </p>
                 </div>
               )}
@@ -342,7 +472,7 @@ export default function Sidebar({ currentSection, user }) {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 text-center border border-gray-200/60 shadow-sm hover:shadow-md transition-all duration-300">
               <div className="text-xl font-bold text-gray-900 mb-1">
-                {user?.activeProductsCount || 0}
+                {user?.active_products_count || user?.activeProductsCount || 0}
               </div>
               <div className="text-xs text-gray-600 font-medium">
                 محصولات فعال
@@ -350,7 +480,7 @@ export default function Sidebar({ currentSection, user }) {
             </div>
             <div className="bg-white/80 backdrop-blur-sm rounded-xl p-3 text-center border border-gray-200/60 shadow-sm hover:shadow-md transition-all duration-300">
               <div className="text-xl font-bold text-gray-900 mb-1">
-                {user?.totalSales || 0}
+                {user?.total_sales || user?.totalSales || 0}
               </div>
               <div className="text-xs text-gray-600 font-medium">فروش کل</div>
             </div>
@@ -369,9 +499,7 @@ export default function Sidebar({ currentSection, user }) {
                 onClick={() => handleNavigation(item.id)}
                 className={`w-full flex items-center space-x-3 space-x-reverse p-2 rounded-2xl transition-all duration-500 group/nav relative overflow-hidden ${
                   isActive
-                    ? `bg-gradient-to-r ${item.gradient} shadow-2xl shadow-${
-                        item.color.split("-")[1]
-                      }-500/25 text-white`
+                    ? `bg-gradient-to-r ${item.gradient} shadow-2xl text-white`
                     : "bg-white/60 hover:bg-white border border-gray-200/60 hover:border-gray-300 shadow-sm hover:shadow-lg text-gray-700 hover:text-gray-900"
                 } transform hover:scale-105`}
               >
@@ -402,31 +530,8 @@ export default function Sidebar({ currentSection, user }) {
                     >
                       {item.label}
                     </span>
-                    {item.badge && (
-                      <span
-                        className={`text-xs px-2 py-1 rounded-full font-bold ${
-                          item.badge === "PRO"
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-blue-100 text-blue-700"
-                        }`}
-                      >
-                        {item.badge}
-                      </span>
-                    )}
                   </div>
                 </div>
-
-                {item.notification && (
-                  <div
-                    className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shadow-lg ${
-                      isActive
-                        ? "bg-white/20 text-white"
-                        : "bg-red-500 text-white"
-                    }`}
-                  >
-                    {item.notification}
-                  </div>
-                )}
 
                 {isActive && (
                   <div className="absolute left-3 w-2 h-2 bg-white rounded-full animate-ping"></div>
