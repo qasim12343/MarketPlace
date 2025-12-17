@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import toast from "react-hot-toast";
 import Loading from "@/components/ui/Loading";
@@ -21,43 +21,8 @@ import {
   Briefcase,
   FileText,
   Home,
-  Navigation,
   X,
 } from "lucide-react";
-
-// لیست استان‌های ایران
-const iranianProvinces = [
-  "تهران",
-  "خراسان رضوی",
-  "اصفهان",
-  "فارس",
-  "خوزستان",
-  "آذربایجان شرقی",
-  "مازندران",
-  "آذربایجان غربی",
-  "کرمان",
-  "گیلان",
-  "سیستان و بلوچستان",
-  "هرمزگان",
-  "قزوین",
-  "کردستان",
-  "بوشهر",
-  "لرستان",
-  "قم",
-  "یزد",
-  "اردبیل",
-  "مرکزی",
-  "همدان",
-  "کهگیلویه و بویراحمد",
-  "زنجان",
-  "ایلام",
-  "چهارمحال و بختیاری",
-  "سمنان",
-  "گلستان",
-  "خراسان شمالی",
-  "خراسان جنوبی",
-  "البرز",
-];
 
 const BASE_API = `${process.env.NEXT_PUBLIC_API_URL}`;
 
@@ -72,18 +37,29 @@ export default function Profile() {
   const [profileImagePreview, setProfileImagePreview] = useState(null);
   const [storeLogoPreview, setStoreLogoPreview] = useState(null);
 
+  // Store the temporary file URLs to avoid memory leaks
+  const [tempProfileImage, setTempProfileImage] = useState(null);
+  const [tempStoreLogo, setTempStoreLogo] = useState(null);
+
+  const profileInputRef = useRef(null);
+  const logoInputRef = useRef(null);
+
   const {
     register,
     handleSubmit,
     formState: { errors, isDirty },
     reset,
-    watch,
-    setValue,
     trigger,
   } = useForm();
 
   useEffect(() => {
     fetchUserData();
+
+    // Cleanup function to revoke object URLs
+    return () => {
+      if (tempProfileImage) URL.revokeObjectURL(tempProfileImage);
+      if (tempStoreLogo) URL.revokeObjectURL(tempStoreLogo);
+    };
   }, []);
 
   useEffect(() => {
@@ -142,7 +118,17 @@ export default function Profile() {
 
     console.log("🖼️ Updating image previews...");
 
-    // Profile image - using has_profile_image and profile_image_info
+    // Clean up previous temporary URLs
+    if (tempProfileImage) {
+      URL.revokeObjectURL(tempProfileImage);
+      setTempProfileImage(null);
+    }
+    if (tempStoreLogo) {
+      URL.revokeObjectURL(tempStoreLogo);
+      setTempStoreLogo(null);
+    }
+
+    // Profile image
     if (data.has_profile_image && data.profile_image_info) {
       const profileUrl = getImageUrl(data.profile_image_info);
       console.log("🖼️ Profile image URL:", profileUrl ? "Generated" : "Null");
@@ -151,7 +137,7 @@ export default function Profile() {
       setProfileImagePreview(null);
     }
 
-    // Store logo - using has_store_logo and store_logo_info
+    // Store logo
     if (data.has_store_logo && data.store_logo_info) {
       const logoUrl = getImageUrl(data.store_logo_info);
       console.log("🖼️ Store logo URL:", logoUrl ? "Generated" : "Null");
@@ -166,7 +152,6 @@ export default function Profile() {
     if (!data) return;
 
     const formData = {
-      // Personal Information - using your exact API field names
       first_name: data.first_name || "",
       last_name: data.last_name || "",
       phone: data.phone || "",
@@ -179,8 +164,6 @@ export default function Profile() {
       birthday: data.birthday
         ? new Date(data.birthday).toISOString().split("T")[0]
         : "",
-
-      // Store Information
       store_name: data.store_name || "",
       store_description: data.store_description || "",
       store_domain: data.store_domain || "",
@@ -193,7 +176,6 @@ export default function Profile() {
     reset(formData);
   };
 
-  // Improved getImageUrl function for Django API
   const getImageUrl = (imageInfo) => {
     if (!imageInfo) {
       console.log("🖼️ No image info provided");
@@ -203,32 +185,33 @@ export default function Profile() {
     try {
       console.log("🖼️ Processing image info:", imageInfo);
 
+      // If it's a blob URL (temporary preview)
+      if (typeof imageInfo === "string" && imageInfo.startsWith("blob:")) {
+        return imageInfo;
+      }
+
       // If image URL is provided directly by Django
       if (imageInfo.url) {
         // Handle relative URLs
         if (imageInfo.url.startsWith("/")) {
           // For media URLs (like /media/store_logos/...), use Django base URL without /api
           if (imageInfo.url.startsWith("/media/")) {
-            const djangoBaseUrl = BASE_API.replace('/api', '');
+            const djangoBaseUrl = BASE_API.replace("/api", "");
             return `${djangoBaseUrl}${imageInfo.url}`;
           }
-          // For other relative URLs, use the full API URL
           return `${BASE_API}${imageInfo.url}`;
         }
         return imageInfo.url;
       }
 
-      // If we have filename and using Django media URLs
       if (imageInfo.filename) {
         return `${BASE_API}${imageInfo.filename}`;
       }
 
-      // If it's a simple image field URL
       if (typeof imageInfo === "string" && imageInfo.startsWith("http")) {
         return imageInfo;
       }
 
-      // If it's a base64 data URL
       if (typeof imageInfo === "string" && imageInfo.startsWith("data:")) {
         return imageInfo;
       }
@@ -258,7 +241,6 @@ export default function Profile() {
 
       console.log("🔄 Updating user data:", formData);
 
-      // Prepare data for Django API - using exact field names from your API
       const updateData = {
         first_name: formData.first_name,
         last_name: formData.last_name,
@@ -276,7 +258,6 @@ export default function Profile() {
         store_established_at: formData.store_established_at,
       };
 
-      // Remove empty values
       Object.keys(updateData).forEach((key) => {
         if (
           updateData[key] === null ||
@@ -328,7 +309,6 @@ export default function Profile() {
       imageType: imageType,
     });
 
-    // Client-side validation
     if (file.size > 5 * 1024 * 1024) {
       toast.error("حجم فایل نباید بیشتر از ۵ مگابایت باشد");
       return;
@@ -339,11 +319,14 @@ export default function Profile() {
       return;
     }
 
-    // Create temporary preview
+    // Create temporary preview immediately
     const previewUrl = URL.createObjectURL(file);
+
     if (imageType === "profile") {
+      setTempProfileImage(previewUrl);
       setProfileImagePreview(previewUrl);
     } else {
+      setTempStoreLogo(previewUrl);
       setStoreLogoPreview(previewUrl);
     }
 
@@ -387,14 +370,38 @@ export default function Profile() {
       console.log("📦 Upload result:", result);
 
       // Update user state with new data
-      setUser(result);
+      setUser((prev) => ({
+        ...prev,
+        ...result,
+        [`has_${
+          imageType === "profile" ? "profile_image" : "store_logo"
+        }`]: true,
+        [`${
+          imageType === "profile" ? "profile_image_info" : "store_logo_info"
+        }`]:
+          result[
+            `${
+              imageType === "profile" ? "profile_image_info" : "store_logo_info"
+            }`
+          ],
+      }));
 
       // Update previews with the actual saved image
       if (imageType === "profile") {
         const newProfileUrl = getImageUrl(result.profile_image_info);
+        // Clean up temporary URL
+        if (tempProfileImage) {
+          URL.revokeObjectURL(tempProfileImage);
+          setTempProfileImage(null);
+        }
         setProfileImagePreview(newProfileUrl);
       } else {
         const newLogoUrl = getImageUrl(result.store_logo_info);
+        // Clean up temporary URL
+        if (tempStoreLogo) {
+          URL.revokeObjectURL(tempStoreLogo);
+          setTempStoreLogo(null);
+        }
         setStoreLogoPreview(newLogoUrl);
       }
 
@@ -407,15 +414,27 @@ export default function Profile() {
       console.error("💥 Upload error:", error);
       toast.error(`خطا در آپلود: ${error.message}`);
 
-      // Revert preview on error
+      // Revert to previous image on error
       if (imageType === "profile") {
-        setProfileImagePreview(
-          user?.profile_image_info ? getImageUrl(user.profile_image_info) : null
-        );
+        const oldUrl = user?.profile_image_info
+          ? getImageUrl(user.profile_image_info)
+          : null;
+        // Clean up temporary URL
+        if (tempProfileImage) {
+          URL.revokeObjectURL(tempProfileImage);
+          setTempProfileImage(null);
+        }
+        setProfileImagePreview(oldUrl);
       } else {
-        setStoreLogoPreview(
-          user?.store_logo_info ? getImageUrl(user.store_logo_info) : null
-        );
+        const oldUrl = user?.store_logo_info
+          ? getImageUrl(user.store_logo_info)
+          : null;
+        // Clean up temporary URL
+        if (tempStoreLogo) {
+          URL.revokeObjectURL(tempStoreLogo);
+          setTempStoreLogo(null);
+        }
+        setStoreLogoPreview(oldUrl);
       }
     } finally {
       setIsUploading(false);
@@ -464,7 +483,18 @@ export default function Profile() {
       const result = await response.json();
       console.log("✅ Remove image result:", result);
 
-      setUser(result);
+      // Update user state
+      setUser((prev) => ({
+        ...prev,
+        [`has_${
+          imageType === "profile" ? "profile_image" : "store_logo"
+        }`]: false,
+        [`${
+          imageType === "profile" ? "profile_image_info" : "store_logo_info"
+        }`]: null,
+      }));
+
+      // Update preview immediately
       if (imageType === "profile") {
         setProfileImagePreview(null);
       } else {
@@ -482,7 +512,6 @@ export default function Profile() {
     }
   };
 
-  // Format date for display
   const formatDate = (dateString) => {
     if (!dateString) return "ثبت نشده";
     try {
@@ -492,7 +521,6 @@ export default function Profile() {
     }
   };
 
-  // Get user display name
   const getUserDisplayName = () => {
     if (!user) return "";
     return (
@@ -556,7 +584,6 @@ export default function Profile() {
                       onError={(e) => {
                         console.error("❌ Profile image failed to load");
                         e.target.style.display = "none";
-                        e.target.nextSibling.style.display = "flex";
                       }}
                     />
                   ) : null}
@@ -584,6 +611,7 @@ export default function Profile() {
                         onChange={(e) => handleImageUpload(e, "profile")}
                         disabled={isUploading}
                         className="hidden"
+                        ref={profileInputRef}
                       />
                     </label>
 
@@ -719,7 +747,7 @@ export default function Profile() {
                       لوگوی فروشگاه
                     </label>
                     <div className="flex items-center space-x-4 space-x-reverse">
-                      <div className="w-32 h-32 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300">
+                      <div className="w-full h-42 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden border-2 border-dashed border-gray-300">
                         {storeLogoPreview ? (
                           <img
                             src={storeLogoPreview}
@@ -728,7 +756,6 @@ export default function Profile() {
                             onError={(e) => {
                               console.error("❌ Store logo failed to load");
                               e.target.style.display = "none";
-                              e.target.nextSibling.style.display = "flex";
                             }}
                           />
                         ) : null}
@@ -770,6 +797,7 @@ export default function Profile() {
                                   onChange={(e) => handleImageUpload(e, "logo")}
                                   disabled={isUploading}
                                   className="hidden"
+                                  ref={logoInputRef}
                                 />
                               </div>
                             </label>
@@ -1014,7 +1042,7 @@ export default function Profile() {
                         onClick={() => {
                           setIsEditing(false);
                           resetFormWithUserData();
-                          // Reset image previews
+                          // Reset image previews to server state
                           updateImagePreviews();
                         }}
                         className="px-6 py-3 text-gray-600 hover:text-gray-800 transition-colors border border-gray-300 rounded-xl hover:bg-gray-50"

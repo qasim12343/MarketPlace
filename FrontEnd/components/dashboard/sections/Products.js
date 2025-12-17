@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
-import toast from "react-hot-toast";
+import { toast, Toaster } from "react-hot-toast";
 import {
   Plus,
   Store,
@@ -160,7 +160,11 @@ export default function Products() {
 
     const storeName = currentStore.store_name || "STORE";
     const year = new Date().getFullYear();
-    const productListLength = products.length + 1;
+    console.log("products: length");
+    // console.log(products[products.length - 1]["sku"].split("-")[2]);
+    const productListLength =
+      Number(products[products.length - 1]["sku"].split("-")[2]) + 1;
+    console.log(productListLength);
 
     // Clean store name (remove spaces and special characters, take first 4 chars)
     const cleanStoreName = storeName
@@ -173,7 +177,6 @@ export default function Products() {
     const sku = `${cleanStoreName}-${year}-${productListLength
       .toString()
       .padStart(4, "0")}`;
-
     return sku;
   };
 
@@ -257,7 +260,6 @@ export default function Products() {
         },
       });
 
-
       if (storeResponse.ok) {
         const storeData = await storeResponse.json();
         console.log("📦 Store owner data:", storeData);
@@ -266,11 +268,11 @@ export default function Products() {
 
         await fetchProducts();
       } else {
-        toast.error("❌ خطا در دریافت اطلاعات فروشگاه");
+        toast.error(" خطا در دریافت اطلاعات فروشگاه");
       }
     } catch (error) {
-      console.error("💥 Error fetching store:", error);
-      toast.error("❌ خطا در ارتباط با سرور");
+      console.error(" Error fetching store:", error);
+      toast.error(" خطا در ارتباط با سرور");
     } finally {
       setIsLoading(false);
     }
@@ -292,7 +294,7 @@ export default function Products() {
       if (response.ok) {
         const result = await response.json();
         console.log("📦 Products data:", result);
-        
+
         // Handle different Django response formats
         let productsData = [];
         if (Array.isArray(result)) {
@@ -304,13 +306,13 @@ export default function Products() {
         }
 
         setProducts(productsData);
-        toast.success(`📦 ${productsData.length} محصول بارگذاری شد`);
+        toast.success(`${productsData.length} محصول بارگذاری شد`);
       } else {
-        toast.error("❌ خطا در دریافت محصولات");
+        toast.error(" خطا در دریافت محصولات");
       }
     } catch (error) {
-      console.error("💥 Error fetching products:", error);
-      toast.error("❌ خطا در ارتباط با سرور");
+      console.error(" Error fetching products:", error);
+      toast.error(" خطا در ارتباط با سرور");
     } finally {
       setIsLoading(false);
     }
@@ -319,7 +321,7 @@ export default function Products() {
   const handleImageUpload = async (event) => {
     const files = Array.from(event.target.files);
     if (files.length + productImages.length > 5) {
-      toast.error("❌ حداکثر ۵ تصویر قابل آپلود است");
+      toast.error("حداکثر ۵ تصویر قابل آپلود است");
       return;
     }
 
@@ -330,12 +332,12 @@ export default function Products() {
     }));
 
     setProductImages((prev) => [...prev, ...newImages]);
-    toast.success(`📷 ${files.length} تصویر اضافه شد`);
+    toast.success(` ${files.length} تصویر اضافه شد`);
   };
 
   const removeImage = (id) => {
     setProductImages((prev) => prev.filter((img) => img.id !== id));
-    toast.success("🗑️ تصویر حذف شد");
+    toast.success("تصویر حذف شد");
   };
 
   const openModal = () => {
@@ -403,7 +405,7 @@ export default function Products() {
     const generatedSKU = generateSKU();
     setValue("sku", generatedSKU);
     trigger("sku");
-    toast.success("🔄 کد محصول مجدداً تولید شد");
+    toast.success("کد محصول مجدداً تولید شد");
   };
 
   // Handle price input with comma formatting
@@ -414,7 +416,7 @@ export default function Products() {
 
   const onSubmit = async (data) => {
     if (productImages.length === 0) {
-      toast.error("❌ حداقل یک تصویر برای محصول انتخاب کنید");
+      toast.error("حداقل یک تصویر برای محصول انتخاب کنید");
       return;
     }
 
@@ -429,14 +431,14 @@ export default function Products() {
       const formData = new FormData();
 
       // 1. Fix price format - remove commas
-      const cleanPrice = data.price.replace(/,/g, '');
+      const cleanPrice = data.price.replace(/,/g, "");
       formData.append("title", data.title);
       formData.append("description", data.description);
       formData.append("sku", data.sku);
       formData.append("price", cleanPrice);
 
       if (data.compare_price) {
-        const cleanComparePrice = data.compare_price.replace(/,/g, '');
+        const cleanComparePrice = data.compare_price.replace(/,/g, "");
         formData.append("compare_price", cleanComparePrice);
       }
 
@@ -474,19 +476,19 @@ export default function Products() {
           Authorization: `Bearer ${token}`,
           // Don't set Content-Type for FormData
         },
-        body: formData
+        body: formData,
       });
 
-
+      console.log(response);
       if (response.ok) {
         const newProduct = await response.json();
         console.log("✅ Product created successfully:", newProduct);
         setProducts((prev) => [newProduct, ...prev]);
         closeModal();
-        toast.success("🎉 محصول با موفقیت ایجاد شد");
+        toast.success(" محصول با موفقیت ایجاد شد");
       } else {
         const errorData = await response.json();
-        console.error("❌ Product creation failed:", errorData);
+        console.error("Product creation failed:", errorData);
         throw new Error(
           errorData.detail || errorData.message || "خطا در ایجاد محصول"
         );
@@ -494,7 +496,7 @@ export default function Products() {
     } catch (error) {
       console.error("Error creating product:", error);
       toast.error(
-        error.message || "❌ ایجاد محصول ناموفق بود. لطفاً دوباره تلاش کنید."
+        error.message || "ایجاد محصول ناموفق بود. لطفاً دوباره تلاش کنید."
       );
     } finally {
       setIsCreating(false);
@@ -502,12 +504,12 @@ export default function Products() {
   };
 
   const handleProductClick = (productId) => {
-    router.push(`/dashboard/products/${productId}`);
+    router.push(`/product/${productId}`);
   };
 
   const deleteProduct = async (productId, e) => {
     e.stopPropagation();
-    if (!confirm("⚠️ آیا از حذف این محصول اطمینان دارید؟")) return;
+    if (!confirm("آیا از حذف این محصول اطمینان دارید؟")) return;
 
     try {
       const token = getAuthToken();
@@ -520,13 +522,13 @@ export default function Products() {
 
       if (response.ok) {
         setProducts((prev) => prev.filter((p) => p.id !== productId));
-        toast.success("🗑️ محصول با موفقیت حذف شد");
+        toast.success("محصول با موفقیت حذف شد");
       } else {
         const errorData = await response.json();
         throw new Error(errorData.detail || "خطا در حذف محصول");
       }
     } catch (error) {
-      toast.error(error.message || "❌ خطا در حذف محصول");
+      toast.error(error.message || " خطا در حذف محصول");
     }
   };
 
@@ -580,13 +582,13 @@ export default function Products() {
       if (response.ok) {
         const duplicatedProduct = await response.json();
         setProducts((prev) => [duplicatedProduct, ...prev]);
-        toast.success("📋 محصول با موفقیت کپی شد");
+        toast.success(" محصول با موفقیت کپی شد");
       } else {
         const errorData = await response.json();
         throw new Error(errorData.detail || "خطا در کپی محصول");
       }
     } catch (error) {
-      toast.error(error.message || "❌ خطا در کپی محصول");
+      toast.error(error.message || " خطا در کپی محصول");
     }
   };
 
@@ -1275,386 +1277,402 @@ export default function Products() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8">
-          <div className="flex items-center space-x-4 space-x-reverse mb-6 lg:mb-0">
-            <div className="relative">
-              <div className="p-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl shadow-2xl shadow-blue-500/25">
-                <ShoppingBag className="h-8 w-8 text-white" />
-              </div>
-              <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow-lg">
-                <Sparkles className="h-3 w-3 text-white" />
-              </div>
-            </div>
-            <div>
-              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
-                مدیریت محصولات
-              </h1>
-              <p className="mt-2 text-gray-600 flex items-center text-lg">
-                <Zap className="h-5 w-5 ml-2 text-yellow-500 animate-pulse" />
-                {currentStore?.store_name || "فروشگاه شما"}
-              </p>
-            </div>
-          </div>
-
-          {/* Quick Stats */}
-          {currentStore && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-blue-100">
-                <div className="flex items-center space-x-3 space-x-reverse">
-                  <div className="p-2 bg-blue-100 rounded-xl">
-                    <Package className="h-5 w-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.totalProducts}
-                    </p>
-                    <p className="text-xs text-gray-500">کل محصولات</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-green-100">
-                <div className="flex items-center space-x-3 space-x-reverse">
-                  <div className="p-2 bg-green-100 rounded-xl">
-                    <TrendingUp className="h-5 w-5 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-gray-900">
-                      {stats.totalValue.toLocaleString()}
-                    </p>
-                    <p className="text-xs text-gray-500">ارزش کل</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Store Info & Add Product Button */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/20 p-8 mb-8 bg-gradient-to-r from-white via-blue-50/50 to-white">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+    <>
+      <Toaster
+        toastOptions={{
+          style: {
+            fontFamily: "var(--font-vazirmatn), sans-serif",
+            direction: "rtl",
+          },
+        }}
+      />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20 py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8">
             <div className="flex items-center space-x-4 space-x-reverse mb-6 lg:mb-0">
-              <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg">
-                <Store className="h-7 w-7 text-white" />
+              <div className="relative">
+                <div className="p-4 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl shadow-2xl shadow-blue-500/25">
+                  <ShoppingBag className="h-8 w-8 text-white" />
+                </div>
+                <div className="absolute -top-2 -right-2 w-6 h-6 bg-green-500 rounded-full flex items-center justify-center shadow-lg">
+                  <Sparkles className="h-3 w-3 text-white" />
+                </div>
               </div>
               <div>
-                <h2 className="text-2xl font-bold text-gray-900">
-                  {currentStore?.store_name}
-                </h2>
-                <p className="text-gray-600 mt-1">
-                  {currentStore?.city && `شهر: ${currentStore.city}`}
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 bg-clip-text text-transparent">
+                  مدیریت محصولات
+                </h1>
+                <p className="mt-2 text-gray-600 flex items-center text-lg">
+                  <Zap className="h-5 w-5 ml-2 text-yellow-500 animate-pulse" />
+                  {currentStore?.store_name || "فروشگاه شما"}
                 </p>
               </div>
             </div>
 
-            <button
-              onClick={openModal}
-              className="group relative bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 font-bold flex items-center justify-center shadow-2xl shadow-blue-500/25 hover:shadow-3xl hover:shadow-purple-500/25 transform hover:-translate-y-0.5"
-            >
-              <Plus className="h-5 w-5 ml-2 group-hover:scale-110 transition-transform" />
-              افزودن محصول جدید
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-white/10 to-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Cards */}
-        {currentStore && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-3xl p-6 text-white shadow-2xl shadow-blue-500/25">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-100 text-sm font-medium">
-                    کل محصولات
-                  </p>
-                  <p className="text-3xl font-bold mt-2">
-                    {stats.totalProducts}
-                  </p>
-                </div>
-                <Package className="h-8 w-8 text-blue-200" />
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-3xl p-6 text-white shadow-2xl shadow-green-500/25">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-100 text-sm font-medium">
-                    ارزش موجودی
-                  </p>
-                  <p className="text-3xl font-bold mt-2">
-                    {stats.totalValue.toLocaleString()}
-                  </p>
-                </div>
-                <DollarSign className="h-8 w-8 text-green-200" />
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-3xl p-6 text-white shadow-2xl shadow-yellow-500/25">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-yellow-100 text-sm font-medium">
-                    کمبود موجودی
-                  </p>
-                  <p className="text-3xl font-bold mt-2">{stats.lowStock}</p>
-                </div>
-                <AlertCircle className="h-8 w-8 text-yellow-200" />
-              </div>
-            </div>
-
-            <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-3xl p-6 text-white shadow-2xl shadow-red-500/25">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-red-100 text-sm font-medium">ناموجود</p>
-                  <p className="text-3xl font-bold mt-2">{stats.outOfStock}</p>
-                </div>
-                <Archive className="h-8 w-8 text-red-200" />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Main Modal */}
-        {isModalOpen && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
-            <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] overflow-y-auto animate-slideUp">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between p-8 border-b border-gray-100">
-                <div className="flex items-center space-x-4 space-x-reverse">
-                  <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl">
-                    {currentModalStep === MODAL_STEPS.CATEGORY && (
-                      <Layers className="h-6 w-6 text-white" />
-                    )}
-                    {currentModalStep === MODAL_STEPS.ATTRIBUTES && (
-                      <Ruler className="h-6 w-6 text-white" />
-                    )}
-                    {currentModalStep === MODAL_STEPS.PRODUCT_INFO && (
-                      <Plus className="h-6 w-6 text-white" />
-                    )}
+            {/* Quick Stats */}
+            {currentStore && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-blue-100">
+                  <div className="flex items-center space-x-3 space-x-reverse">
+                    <div className="p-2 bg-blue-100 rounded-xl">
+                      <Package className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {stats.totalProducts}
+                      </p>
+                      <p className="text-xs text-gray-500">کل محصولات</p>
+                    </div>
                   </div>
+                </div>
+
+                <div className="bg-white/80 backdrop-blur-sm rounded-2xl p-4 shadow-lg border border-green-100">
+                  <div className="flex items-center space-x-3 space-x-reverse">
+                    <div className="p-2 bg-green-100 rounded-xl">
+                      <TrendingUp className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {stats.totalValue.toLocaleString()}
+                      </p>
+                      <p className="text-xs text-gray-500">ارزش کل</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Store Info & Add Product Button */}
+          <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/20 p-8 mb-8 bg-gradient-to-r from-white via-blue-50/50 to-white">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center space-x-4 space-x-reverse mb-6 lg:mb-0">
+                <div className="p-3 bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl shadow-lg">
+                  <Store className="h-7 w-7 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {currentStore?.store_name}
+                  </h2>
+                  <p className="text-gray-600 mt-1">
+                    {currentStore?.city && `شهر: ${currentStore.city}`}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={openModal}
+                className="group relative bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 font-bold flex items-center justify-center shadow-2xl shadow-blue-500/25 hover:shadow-3xl hover:shadow-purple-500/25 transform hover:-translate-y-0.5"
+              >
+                <Plus className="h-5 w-5 ml-2 group-hover:scale-110 transition-transform" />
+                افزودن محصول جدید
+                <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-white/10 to-white/5 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+              </button>
+            </div>
+          </div>
+
+          {/* Stats Cards */}
+          {currentStore && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+              <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-3xl p-6 text-white shadow-2xl shadow-blue-500/25">
+                <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">
-                      {currentModalStep === MODAL_STEPS.CATEGORY &&
-                        "انتخاب دسته‌بندی"}
-                      {currentModalStep === MODAL_STEPS.ATTRIBUTES &&
-                        "مشخصات محصول"}
-                      {currentModalStep === MODAL_STEPS.PRODUCT_INFO &&
-                        "تکمیل اطلاعات محصول"}
-                    </h2>
-                    <p className="text-gray-600 mt-1">
-                      {currentModalStep === MODAL_STEPS.CATEGORY &&
-                        "دسته‌بندی اصلی محصول خود را انتخاب کنید"}
-                      {currentModalStep === MODAL_STEPS.ATTRIBUTES &&
-                        "سایز و رنگ محصول را انتخاب کنید"}
-                      {currentModalStep === MODAL_STEPS.PRODUCT_INFO &&
-                        "اطلاعات محصول جدید را وارد کنید"}
+                    <p className="text-blue-100 text-sm font-medium">
+                      کل محصولات
+                    </p>
+                    <p className="text-3xl font-bold mt-2">
+                      {stats.totalProducts}
                     </p>
                   </div>
+                  <Package className="h-8 w-8 text-blue-200" />
                 </div>
-                <button
-                  onClick={closeModal}
-                  className="p-3 hover:bg-gray-100 rounded-2xl transition-all duration-200 hover:scale-110"
-                >
-                  <X className="h-6 w-6 text-gray-500" />
-                </button>
               </div>
 
-              {/* Progress Steps */}
-              <div className="px-8 pt-6">
-                <div className="flex items-center justify-center space-x-8 space-x-reverse">
-                  {Object.values(MODAL_STEPS).map((step, index) => (
-                    <div key={step} className="flex items-center">
-                      <div
-                        className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 ${
-                          currentModalStep === step
-                            ? "bg-blue-500 border-blue-500 text-white"
-                            : index <
+              <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-3xl p-6 text-white shadow-2xl shadow-green-500/25">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-green-100 text-sm font-medium">
+                      ارزش موجودی
+                    </p>
+                    <p className="text-3xl font-bold mt-2">
+                      {stats.totalValue.toLocaleString()}
+                    </p>
+                  </div>
+                  <DollarSign className="h-8 w-8 text-green-200" />
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-3xl p-6 text-white shadow-2xl shadow-yellow-500/25">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-yellow-100 text-sm font-medium">
+                      کمبود موجودی
+                    </p>
+                    <p className="text-3xl font-bold mt-2">{stats.lowStock}</p>
+                  </div>
+                  <AlertCircle className="h-8 w-8 text-yellow-200" />
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-3xl p-6 text-white shadow-2xl shadow-red-500/25">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-red-100 text-sm font-medium">ناموجود</p>
+                    <p className="text-3xl font-bold mt-2">
+                      {stats.outOfStock}
+                    </p>
+                  </div>
+                  <Archive className="h-8 w-8 text-red-200" />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Main Modal */}
+          {isModalOpen && (
+            <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+              <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] overflow-y-auto animate-slideUp">
+                {/* Modal Header */}
+                <div className="flex items-center justify-between p-8 border-b border-gray-100">
+                  <div className="flex items-center space-x-4 space-x-reverse">
+                    <div className="p-3 bg-gradient-to-br from-blue-500 to-purple-600 rounded-2xl">
+                      {currentModalStep === MODAL_STEPS.CATEGORY && (
+                        <Layers className="h-6 w-6 text-white" />
+                      )}
+                      {currentModalStep === MODAL_STEPS.ATTRIBUTES && (
+                        <Ruler className="h-6 w-6 text-white" />
+                      )}
+                      {currentModalStep === MODAL_STEPS.PRODUCT_INFO && (
+                        <Plus className="h-6 w-6 text-white" />
+                      )}
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">
+                        {currentModalStep === MODAL_STEPS.CATEGORY &&
+                          "انتخاب دسته‌بندی"}
+                        {currentModalStep === MODAL_STEPS.ATTRIBUTES &&
+                          "مشخصات محصول"}
+                        {currentModalStep === MODAL_STEPS.PRODUCT_INFO &&
+                          "تکمیل اطلاعات محصول"}
+                      </h2>
+                      <p className="text-gray-600 mt-1">
+                        {currentModalStep === MODAL_STEPS.CATEGORY &&
+                          "دسته‌بندی اصلی محصول خود را انتخاب کنید"}
+                        {currentModalStep === MODAL_STEPS.ATTRIBUTES &&
+                          "سایز و رنگ محصول را انتخاب کنید"}
+                        {currentModalStep === MODAL_STEPS.PRODUCT_INFO &&
+                          "اطلاعات محصول جدید را وارد کنید"}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={closeModal}
+                    className="p-3 hover:bg-gray-100 rounded-2xl transition-all duration-200 hover:scale-110"
+                  >
+                    <X className="h-6 w-6 text-gray-500" />
+                  </button>
+                </div>
+
+                {/* Progress Steps */}
+                <div className="px-8 pt-6">
+                  <div className="flex items-center justify-center space-x-8 space-x-reverse">
+                    {Object.values(MODAL_STEPS).map((step, index) => (
+                      <div key={step} className="flex items-center">
+                        <div
+                          className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 ${
+                            currentModalStep === step
+                              ? "bg-blue-500 border-blue-500 text-white"
+                              : index <
+                                Object.values(MODAL_STEPS).indexOf(
+                                  currentModalStep
+                                )
+                              ? "bg-green-500 border-green-500 text-white"
+                              : "bg-white border-gray-300 text-gray-500"
+                          }`}
+                        >
+                          {index <
+                          Object.values(MODAL_STEPS).indexOf(
+                            currentModalStep
+                          ) ? (
+                            <CheckCircle className="h-5 w-5" />
+                          ) : (
+                            index + 1
+                          )}
+                        </div>
+                        {index < Object.values(MODAL_STEPS).length - 1 && (
+                          <div
+                            className={`w-16 h-1 transition-all duration-300 ${
+                              index <
                               Object.values(MODAL_STEPS).indexOf(
                                 currentModalStep
                               )
-                            ? "bg-green-500 border-green-500 text-white"
-                            : "bg-white border-gray-300 text-gray-500"
-                        }`}
-                      >
-                        {index <
-                        Object.values(MODAL_STEPS).indexOf(currentModalStep) ? (
-                          <CheckCircle className="h-5 w-5" />
-                        ) : (
-                          index + 1
+                                ? "bg-green-500"
+                                : "bg-gray-300"
+                            }`}
+                          />
                         )}
                       </div>
-                      {index < Object.values(MODAL_STEPS).length - 1 && (
-                        <div
-                          className={`w-16 h-1 transition-all duration-300 ${
-                            index <
-                            Object.values(MODAL_STEPS).indexOf(currentModalStep)
-                              ? "bg-green-500"
-                              : "bg-gray-300"
-                          }`}
-                        />
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
+
+                {/* Modal Content */}
+                {renderModalContent()}
               </div>
-
-              {/* Modal Content */}
-              {renderModalContent()}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Products List */}
-        {currentStore && (
-          <div className="space-y-8">
-            {/* Products Header */}
-            <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/20 p-8">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8 space-y-6 lg:space-y-0">
-                <div className="flex items-center space-x-4 space-x-reverse">
-                  <div className="p-3 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg">
-                    <Package className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">
-                      محصولات فروشگاه
-                    </h2>
-                    <p className="text-gray-600 mt-1">
-                      {sortedProducts.length} محصول یافت شد
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 sm:space-x-reverse">
-                  {/* Search */}
-                  <div className="relative group">
-                    <Search className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5 group-focus-within:text-blue-500 transition-colors" />
-                    <input
-                      type="text"
-                      placeholder="جستجو در محصولات..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-12 pr-4 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/50 w-full sm:w-80 group-hover:border-blue-300"
-                    />
+          {/* Products List */}
+          {currentStore && (
+            <div className="space-y-8">
+              {/* Products Header */}
+              <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl border border-white/20 p-8">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8 space-y-6 lg:space-y-0">
+                  <div className="flex items-center space-x-4 space-x-reverse">
+                    <div className="p-3 bg-gradient-to-br from-green-500 to-green-600 rounded-2xl shadow-lg">
+                      <Package className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900">
+                        محصولات فروشگاه
+                      </h2>
+                      <p className="text-gray-600 mt-1">
+                        {sortedProducts.length} محصول یافت شد
+                      </p>
+                    </div>
                   </div>
 
-                  {/* Sort */}
-                  <div className="relative group">
-                    <ArrowUpDown className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-                    <select
-                      value={sortBy}
-                      onChange={(e) => setSortBy(e.target.value)}
-                      className="pl-12 pr-8 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/50 appearance-none w-full sm:w-48 group-hover:border-blue-300"
-                    >
-                      <option value="newest">جدیدترین</option>
-                      <option value="price-high">قیمت (زیاد به کم)</option>
-                      <option value="price-low">قیمت (کم به زیاد)</option>
-                      <option value="stock-high">موجودی (زیاد به کم)</option>
-                      <option value="stock-low">موجودی (کم به زیاد)</option>
-                    </select>
-                  </div>
-
-                  {/* Category Filter */}
-                  {allCategories.length > 0 && (
+                  <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 sm:space-x-reverse">
+                    {/* Search */}
                     <div className="relative group">
-                      <Filter className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                      <Search className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5 group-focus-within:text-blue-500 transition-colors" />
+                      <input
+                        type="text"
+                        placeholder="جستجو در محصولات..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="pl-12 pr-4 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/50 w-full sm:w-80 group-hover:border-blue-300"
+                      />
+                    </div>
+
+                    {/* Sort */}
+                    <div className="relative group">
+                      <ArrowUpDown className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
                       <select
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
                         className="pl-12 pr-8 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/50 appearance-none w-full sm:w-48 group-hover:border-blue-300"
                       >
-                        <option value="">همه دسته‌بندی‌ها</option>
-                        {allCategories.map((category) => (
-                          <option key={category} value={category}>
-                            {MAIN_CATEGORIES.find((c) => c.id === category)
-                              ?.name || category}
-                          </option>
-                        ))}
+                        <option value="newest">جدیدترین</option>
+                        <option value="price-high">قیمت (زیاد به کم)</option>
+                        <option value="price-low">قیمت (کم به زیاد)</option>
+                        <option value="stock-high">موجودی (زیاد به کم)</option>
+                        <option value="stock-low">موجودی (کم به زیاد)</option>
                       </select>
                     </div>
-                  )}
 
-                  {/* View Toggle */}
-                  <div className="flex bg-gray-100 rounded-2xl p-2">
-                    <button
-                      onClick={() => setViewMode("grid")}
-                      className={`p-3 rounded-xl transition-all duration-300 ${
-                        viewMode === "grid"
-                          ? "bg-white shadow-lg text-blue-600 shadow-blue-500/25"
-                          : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
-                      }`}
-                    >
-                      <Grid className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={() => setViewMode("list")}
-                      className={`p-3 rounded-xl transition-all duration-300 ${
-                        viewMode === "list"
-                          ? "bg-white shadow-lg text-blue-600 shadow-blue-500/25"
-                          : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
-                      }`}
-                    >
-                      <List className="h-5 w-5" />
-                    </button>
+                    {/* Category Filter */}
+                    {allCategories.length > 0 && (
+                      <div className="relative group">
+                        <Filter className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                        <select
+                          value={selectedCategory}
+                          onChange={(e) => setSelectedCategory(e.target.value)}
+                          className="pl-12 pr-8 py-4 border-2 border-gray-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-300 bg-white/50 appearance-none w-full sm:w-48 group-hover:border-blue-300"
+                        >
+                          <option value="">همه دسته‌بندی‌ها</option>
+                          {allCategories.map((category) => (
+                            <option key={category} value={category}>
+                              {MAIN_CATEGORIES.find((c) => c.id === category)
+                                ?.name || category}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* View Toggle */}
+                    <div className="flex bg-gray-100 rounded-2xl p-2">
+                      <button
+                        onClick={() => setViewMode("grid")}
+                        className={`p-3 rounded-xl transition-all duration-300 ${
+                          viewMode === "grid"
+                            ? "bg-white shadow-lg text-blue-600 shadow-blue-500/25"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                        }`}
+                      >
+                        <Grid className="h-5 w-5" />
+                      </button>
+                      <button
+                        onClick={() => setViewMode("list")}
+                        className={`p-3 rounded-xl transition-all duration-300 ${
+                          viewMode === "list"
+                            ? "bg-white shadow-lg text-blue-600 shadow-blue-500/25"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-white/50"
+                        }`}
+                      >
+                        <List className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {sortedProducts.length === 0 ? (
-                <div className="text-center py-16">
-                  <div className="text-gray-300 mb-6">
-                    <Package className="h-24 w-24 mx-auto opacity-50" />
-                  </div>
-                  <p className="text-gray-500 text-xl font-bold mb-3">
-                    محصولی یافت نشد
-                  </p>
-                  {searchTerm || selectedCategory ? (
-                    <p className="text-gray-400">
-                      سعی کنید فیلترهای جستجو را تغییر دهید
+                {sortedProducts.length === 0 ? (
+                  <div className="text-center py-16">
+                    <div className="text-gray-300 mb-6">
+                      <Package className="h-24 w-24 mx-auto opacity-50" />
+                    </div>
+                    <p className="text-gray-500 text-xl font-bold mb-3">
+                      محصولی یافت نشد
                     </p>
-                  ) : (
-                    <button
-                      onClick={openModal}
-                      className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 font-bold shadow-2xl shadow-blue-500/25 hover:shadow-3xl hover:shadow-purple-500/25 transform hover:-translate-y-0.5"
-                    >
-                      <Plus className="h-5 w-5 ml-2 inline" />
-                      افزودن اولین محصول
-                    </button>
-                  )}
-                </div>
-              ) : viewMode === "grid" ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
-                  {sortedProducts.map((product) => (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      getImageUrl={getImageUrl}
-                      onProductClick={handleProductClick}
-                      onDelete={deleteProduct}
-                      onDuplicate={duplicateProduct}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {sortedProducts.map((product) => (
-                    <ProductListItem
-                      key={product.id}
-                      product={product}
-                      getImageUrl={getImageUrl}
-                      onProductClick={handleProductClick}
-                      onDelete={deleteProduct}
-                      onDuplicate={duplicateProduct}
-                    />
-                  ))}
-                </div>
-              )}
+                    {searchTerm || selectedCategory ? (
+                      <p className="text-gray-400">
+                        سعی کنید فیلترهای جستجو را تغییر دهید
+                      </p>
+                    ) : (
+                      <button
+                        onClick={openModal}
+                        className="bg-gradient-to-r from-blue-500 to-purple-600 text-white px-8 py-4 rounded-2xl hover:from-blue-600 hover:to-purple-700 transition-all duration-300 font-bold shadow-2xl shadow-blue-500/25 hover:shadow-3xl hover:shadow-purple-500/25 transform hover:-translate-y-0.5"
+                      >
+                        <Plus className="h-5 w-5 ml-2 inline" />
+                        افزودن اولین محصول
+                      </button>
+                    )}
+                  </div>
+                ) : viewMode === "grid" ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                    {sortedProducts.map((product) => (
+                      <ProductCard
+                        key={product.id}
+                        product={product}
+                        getImageUrl={getImageUrl}
+                        onProductClick={handleProductClick}
+                        onDelete={deleteProduct}
+                        onDuplicate={duplicateProduct}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {sortedProducts.map((product) => (
+                      <ProductListItem
+                        key={product.id}
+                        product={product}
+                        getImageUrl={getImageUrl}
+                        onProductClick={handleProductClick}
+                        onDelete={deleteProduct}
+                        onDuplicate={duplicateProduct}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
