@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.db.models import Q
-from .models import Customer, StoreOwner, Product, ProductRating
-from .serializers import CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer
+from .models import Customer, StoreOwner, Product, ProductRating, Cart
+from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -653,4 +653,197 @@ class CategoryViewSet(viewsets.ViewSet):
             },
             'products': serializer.data,
             'total_products': len(serializer.data)
+        })
+
+
+class CartViewSet(viewsets.ModelViewSet):
+    """ViewSet for Cart operations"""
+    queryset = Cart.objects.all().order_by('-created_at')
+    serializer_class = CartSerializer
+
+    def get_queryset(self):
+        """Filter carts - customers can only see their own cart, admins can see all"""
+        user = self.request.user
+
+        if user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'customer':
+            # Customers can only see their own cart
+            return Cart.objects.filter(user_id=user)
+        elif user.is_authenticated and user.is_superuser:
+            # Admins can see all carts
+            return Cart.objects.all()
+        else:
+            # Anonymous users or other types can't see carts
+            return Cart.objects.none()
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve']:
+            # Customers can view their own cart, admins can view all
+            return [IsCustomerOrAdmin()]
+        if self.action in ['create', 'update', 'partial_update', 'destroy',
+                          'add_item', 'update_item', 'remove_item', 'clear_cart']:
+            # Only customers can manage their own cart
+            return [IsCustomer()]
+        return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        """Override to get cart by user for 'me' lookup"""
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value == 'me':
+            if not self.request.user.is_authenticated:
+                raise PermissionDenied("Authentication required")
+            if not hasattr(self.request.user, 'user_type') or self.request.user.user_type != 'customer':
+                raise PermissionDenied("Only customers can access their cart")
+
+            # Get the Customer instance
+            try:
+                customer = Customer.objects.get(id=self.request.user.id)
+            except Customer.DoesNotExist:
+                raise PermissionDenied("Customer profile not found")
+
+            # Get or create cart for the customer
+            cart, created = Cart.objects.get_or_create(user_id=customer)
+            return cart
+
+        return super().get_object()
+
+    def create(self, request, *args, **kwargs):
+        """Create a new cart - actually uses get_or_create"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cart = serializer.save()
+        serializer = self.get_serializer(cart)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    # Cart Item Management Actions
+    @action(detail=True, methods=['post'], url_path='add-item')
+    def add_item(self, request, pk=None):
+        """Add an item to the cart"""
+        cart = self.get_object()
+
+        # Validate item data
+        item_data = request.data
+        if not item_data:
+            return Response(
+                {'detail': 'Item data is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        item_serializer = CartItemSerializer(data=item_data)
+        if not item_serializer.is_valid():
+            return Response(item_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_item = item_serializer.validated_data
+
+        # Check if item already exists in cart
+        existing_item = None
+        for item in cart.items:
+            if item['product_id'] == validated_item['product_id']:
+                existing_item = item
+                break
+
+        if existing_item:
+            # Update quantity
+            existing_item['quantity'] += validated_item['quantity']
+            cart.save()
+            return Response({
+                'detail': 'Item quantity updated successfully',
+            })
+        else:
+            # Add new item
+            cart.items.append(validated_item)
+            cart.save()
+            return Response({
+                'detail': 'Item added to cart successfully',
+            })
+
+    @action(detail=True, methods=['put', 'patch'], url_path=r'update-item/(?P<product_id>[^/]+)')
+    def update_item(self, request, pk=None, product_id=None):
+        """Update an item in the cart"""
+        cart = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Find the item
+        item_found = False
+        for item in cart.items:
+            if item['product_id'] == product_id:
+                # Update item fields
+                if 'quantity' in request.data:
+                    item['quantity'] = request.data['quantity']
+                if 'color' in request.data:
+                    item['color'] = request.data['color']
+                if 'size' in request.data:
+                    item['size'] = request.data['size']
+                item_found = True
+                break
+
+        if not item_found:
+            return Response(
+                {'detail': 'Item not found in cart'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Validate updated item
+        item_serializer = CartItemSerializer(data=item)
+        if not item_serializer.is_valid():
+            return Response(item_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        cart.save()
+        return Response({
+            'detail': 'Item updated successfully',
+            'item': item
+        })
+
+    @action(detail=True, methods=['delete'], url_path=r'remove-item/(?P<product_id>[^/]+)')
+    def remove_item(self, request, pk=None, product_id=None):
+        """Remove an item from the cart"""
+        cart = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Find and remove the item
+        original_length = len(cart.items)
+        cart.items = [item for item in cart.items if item['product_id'] != product_id]
+
+        if len(cart.items) == original_length:
+            return Response(
+                {'detail': 'Item not found in cart'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        cart.save()
+        return Response({'detail': 'Item removed from cart successfully'})
+
+    @action(detail=True, methods=['post'], url_path='clear')
+    def clear_cart(self, request, pk=None):
+        """Clear all items from the cart"""
+        cart = self.get_object()
+        cart.items = []
+        cart.save()
+        return Response({'detail': 'Cart cleared successfully'})
+
+    # Additional Cart Actions
+    @action(detail=True, methods=['get'], url_path='summary')
+    def summary(self, request, pk=None):
+        """Get cart summary with totals"""
+        cart = self.get_object()
+        serializer = self.get_serializer(cart)
+        data = serializer.data
+
+        return Response({
+            'cart': data,
+            'summary': {
+                'total_items': data['total_items'],
+                'total_price': str(data['total_price']),
+                'item_count': len(data['items'])
+            }
         })

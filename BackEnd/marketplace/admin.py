@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Customer, StoreOwner, Product, ProductImage, ProductRating
+from .models import Customer, StoreOwner, Product, ProductImage, ProductRating, Cart
 
 
 @admin.register(Customer)
@@ -136,5 +136,13 @@ class ProductRatingAdmin(admin.ModelAdmin):
     list_display = ('customer', 'product', 'rating', 'created_at')
     list_filter = ('rating', 'created_at')
     search_fields = ('customer__first_name', 'customer__last_name', 'customer__phone', 'product__title', 'product__sku')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Cart)
+class CartAdmin(admin.ModelAdmin):
+    list_display = ('user_id', 'created_at', 'updated_at')
+    search_fields = ('user_id__first_name', 'user_id__last_name', 'user_id__phone')
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')

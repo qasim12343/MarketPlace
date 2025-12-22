@@ -35,7 +35,7 @@ then get the access token
 
 //////////////////////////////
 # Store Owner
-## 📋 Available API Endpoints
+##  Available API Endpoints
 
 ### Store Owner CRUD
 - `POST /api/store-owners/` - Create store owner
@@ -72,7 +72,7 @@ then get the access token
 
 //////////////////////////////
 # Product
-## 📋 Available API Endpoints
+## Available API Endpoints
 
 ### Product CRUD
 - `GET /api/products/` - List products (filtered by status for non-store-owners)
@@ -125,7 +125,7 @@ then get the access token
 ## Increment View Count:
 - POST http://127.0.0.1:8000/api/products/{id}/view/
 
-## 📝 Product Fields Explanation:
+##  Product Fields Explanation:
 
 ### Required Fields:
 - **store_owner**: Auto-set to current authenticated store owner
@@ -154,7 +154,7 @@ then get the access token
 - **View**: Everyone can view products (active products for non-store-owners)
 - **My Products**: Only authenticated store owners
 
-## 📊 Data Types:
+##  Data Types:
 
 - **price/compare_price**: Decimal (10 digits, 2 decimals)
 - **stock/views/sales_count**: Integer
@@ -164,7 +164,7 @@ then get the access token
 
 //////////////////////////////
 # Category API for Home Page
-## 📋 Available API Endpoints
+##  Available API Endpoints
 
 ### Get Stores by Category
 - `GET /api/categories/{category}/stores/` - Get all stores that have products in the specified category
@@ -233,9 +233,82 @@ then get the access token
 ```
 
 
-## 📊 Filtering & Validation
+##  Filtering & Validation
 - **Categories**: Only men, women, kids are valid
 - **Products**: Only active products are returned
 - **Stores**: Only approved stores with active products in the category are returned
 - **Ordering**: Products ordered by creation date (newest first)
 - **Images**: Primary images shown first in product responses
+
+//////////////////////////////
+# Cart
+##  Cart API Documentation
+
+The Cart API allows customers to manage their shopping carts with embedded cart items.
+
+##  Available API Endpoints
+
+### Cart CRUD
+- `GET /api/carts/me/` - Get current user's cart
+- `PUT /api/carts/me/` - Update cart items (replace all)
+- `PATCH /api/carts/me/` - Partial update cart items
+- `DELETE /api/carts/me/` - Delete cart (clear all items)
+
+### Cart Item Management
+- `POST /api/carts/me/add-item/` - Add item to cart
+- `PUT /api/carts/me/update-item/{product_id}/` - Update item quantity/color/size
+- `DELETE /api/carts/me/remove-item/{product_id}/` - Remove item from cart
+- `POST /api/carts/me/clear/` - Clear all items from cart
+
+### Cart Information
+- `GET /api/carts/me/summary/` - Get cart summary with totals
+
+##  API Usage Examples
+
+### Get Cart
+```bash
+GET /api/carts/me/
+Authorization: Bearer <customer_token>
+```
+
+### Add Item to Cart
+```bash
+POST /api/carts/me/add-item/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "product_id": "693f127d61cbf72a8ad3cd97",
+  "quantity": 1,
+  "price_snapshot": 150000.00,
+  "color": "سفید",
+  "size": "L",
+  "owner_store_id": "69355abeeaded8b87b904951"
+}
+```
+
+### Update Item Quantity
+```bash
+PUT /api/carts/me/update-item/6790ce0b234b9c083b0aaf4/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "quantity": 3,
+  "color": "آبی"
+}
+```
+
+### Remove Item from Cart
+```bash
+DELETE /api/carts/me/remove-item/{product_id}/
+Authorization: Bearer <customer_token>
+```
+
+
+### Clear Cart
+```bash
+POST /api/carts/me/clear/
+Authorization: Bearer <customer_token>
+```
+

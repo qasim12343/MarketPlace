@@ -825,3 +825,30 @@ class ProductRating(models.Model):
 
     def __str__(self):
         return f"{self.customer.full_name} rated {self.product.title}: {self.rating}"
+
+
+class Cart(models.Model):
+    """
+    Cart model for storing user carts.
+    Each cart item is stored as a dict in the items JSONField with keys:
+    product_id (str), quantity (int), price_snapshot (float), color (str), size (str), owner_store_id (str)
+    """
+    user_id = models.OneToOneField(
+        Customer,
+        on_delete=models.CASCADE,
+        unique=True,
+        related_name='cart'
+    )
+    items = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user_id']),
+        ]
+        verbose_name = "Cart"
+        verbose_name_plural = "Carts"
+
+    def __str__(self):
+        return f"Cart for {self.user_id.full_name}"
