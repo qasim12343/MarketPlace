@@ -852,3 +852,127 @@ class Cart(models.Model):
 
     def __str__(self):
         return f"Cart for {self.user_id.full_name}"
+
+
+class OrderItem(models.Model):
+    """
+    Order Item model representing individual items in an order.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    order = models.ForeignKey(
+        'Order',
+        on_delete=models.CASCADE,
+        related_name='items',
+        help_text="سفارش مرتبط"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        help_text="محصول"
+    )
+    title = models.CharField(
+        max_length=255,
+        help_text="عنوان محصول"
+    )
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+        help_text="قیمت محصول"
+    )
+    quantity = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        help_text="تعداد"
+    )
+    total = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+        help_text="مجموع قیمت"
+    )
+
+    class Meta:
+        verbose_name = "Order Item"
+        verbose_name_plural = "Order Items"
+
+    def __str__(self):
+        return f"{self.title} x {self.quantity}"
+
+    def save(self, *args, **kwargs):
+        # Calculate total if not provided
+        if not self.total:
+            self.total = self.price * self.quantity
+        super().save(*args, **kwargs)
+
+
+class Order(models.Model):
+    """
+    Order model representing customer orders.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    user = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name='orders',
+        help_text="کاربر سفارش‌دهنده"
+    )
+    store = models.ForeignKey(
+        StoreOwner,
+        on_delete=models.CASCADE,
+        related_name='orders',
+        help_text="فروشگاه"
+    )
+    total_amount = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+        help_text="مجموع مبلغ سفارش"
+    )
+    shipping_address = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="آدرس ارسال"
+    )
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "در انتظار"
+        PAID = "paid", "پرداخت شده"
+        SHIPPED = "shipped", "ارسال شده"
+        DELIVERED = "delivered", "تحویل شده"
+        CANCELLED = "cancelled", "لغو شده"
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        help_text="وضعیت سفارش"
+    )
+    payment_method = models.CharField(
+        max_length=100,
+        help_text="روش پرداخت"
+    )
+    tracking_number = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="شماره پیگیری"
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Order"
+        verbose_name_plural = "Orders"
+
+    def __str__(self):
+        return f"Order {self.id} by {self.user.full_name}"
+
+    def calculate_total(self):
+        """Calculate total amount from order items"""
+        total = sum(item.total for item in self.items.all())
+        self.total_amount = total
+        self.save(update_fields=['total_amount'])
+        return total

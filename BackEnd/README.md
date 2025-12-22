@@ -125,42 +125,6 @@ then get the access token
 ## Increment View Count:
 - POST http://127.0.0.1:8000/api/products/{id}/view/
 
-##  Product Fields Explanation:
-
-### Required Fields:
-- **store_owner**: Auto-set to current authenticated store owner
-- **title**: Product name (string, max 255)
-- **description**: Product description (text)
-- **sku**: Unique product code per store (string, max 100)
-- **price**: Product price (decimal, minimum 0)
-- **stock**: Available quantity (integer, minimum 0)
-- **category**: Product category (men/women/kids/baby)
-
-### Optional Fields:
-- **compare_price**: Original price for discount calculation (decimal)
-- **sizes**: Array of size options (JSON array)
-- **colors**: Array of color options (JSON array)
-- **tags**: Array of product tags (JSON array)
-- **images**: Array of product images (auto-populated)
-
-### Computed Fields:
-- **is_in_stock**: Boolean (stock > 0)
-- **is_low_stock**: Boolean (stock <= 10 and stock > 0)
-- **discount_percentage**: Integer (calculated from compare_price)
-- **images_count**: Integer (number of images)
-
-### Permissions:
-- **Create/Update/Delete**: Only store owners (for their products) and admins
-- **View**: Everyone can view products (active products for non-store-owners)
-- **My Products**: Only authenticated store owners
-
-##  Data Types:
-
-- **price/compare_price**: Decimal (10 digits, 2 decimals)
-- **stock/views/sales_count**: Integer
-- **sizes/colors/tags**: Array of strings
-- **images**: Array of objects with binary data
-- **rating**: Object with average (decimal) and count (integer)
 
 //////////////////////////////
 # Category API for Home Page
@@ -173,80 +137,10 @@ then get the access token
 
 
 ### Get Products by Store and Category
-- `GET /api/categories/{category}/stores/{store_id}/products/` - Get products of a specific store in the specified category
-
-**Response Format:**
-```json
-{
-  "category": "men",
-  "store": {
-    "id": "store_id",
-    "store_name": "Store Name",
-    "store_rating": {
-      "average": 4.5,
-      "count": 10
-    }
-  },
-  "products": [
-    {
-      "id": "product_id",
-      "store_owner": {
-        "id": "store_owner_id",
-        "store_name": "Store Name",
-        "full_name": "Owner Name"
-      },
-      "title": "Product Title",
-      "description": "Product Description",
-      "sku": "SKU123",
-      "price": "150000.00",
-      "compare_price": "200000.00",
-      "stock": 100,
-      "category": "men",
-      "sizes": ["S", "M", "L"],
-      "colors": ["Black", "White"],
-      "tags": ["tag1", "tag2"],
-      "status": "active",
-      "views": 150,
-      "sales_count": 25,
-      "rating": {
-        "average": 4.2,
-        "count": 8
-      },
-      "created_at": "2025-01-01T10:00:00Z",
-      "updated_at": "2025-01-01T10:00:00Z",
-      "is_in_stock": true,
-      "is_low_stock": false,
-      "discount_percentage": 25,
-      "images_count": 3,
-      "images": [
-        {
-          "id": "image_id",
-          "image": "http://example.com/media/products/image.jpg",
-          "is_primary": true,
-          "created_at": "2025-01-01T10:00:00Z"
-        }
-      ]
-    }
-  ],
-  "total_products": 10
-}
-```
-
-
-##  Filtering & Validation
-- **Categories**: Only men, women, kids are valid
-- **Products**: Only active products are returned
-- **Stores**: Only approved stores with active products in the category are returned
-- **Ordering**: Products ordered by creation date (newest first)
-- **Images**: Primary images shown first in product responses
+- `GET /api/categories/{category}/stores/{store_id}/products/` - 
 
 //////////////////////////////
 # Cart
-##  Cart API Documentation
-
-The Cart API allows customers to manage their shopping carts with embedded cart items.
-
-##  Available API Endpoints
 
 ### Cart CRUD
 - `GET /api/carts/me/` - Get current user's cart
@@ -293,11 +187,6 @@ PUT /api/carts/me/update-item/6790ce0b234b9c083b0aaf4/
 Authorization: Bearer <customer_token>
 Content-Type: application/json
 
-{
-  "quantity": 3,
-  "color": "آبی"
-}
-```
 
 ### Remove Item from Cart
 ```bash
@@ -312,3 +201,88 @@ POST /api/carts/me/clear/
 Authorization: Bearer <customer_token>
 ```
 
+//////////////////////////////
+# Order
+
+### Order CRUD
+- `POST /api/orders/` - Create new order from cart items (customers only)
+- `GET /api/orders/` - List orders (filtered by user type)
+- `GET /api/orders/{id}/` - Get order details
+- `PUT /api/orders/{id}/` - Update order (store owners/admins only)
+- `PATCH /api/orders/{id}/` - Partial update order (store owners/admins only)
+- `DELETE /api/orders/{id}/` - Delete order (admins only)
+
+### Order Management
+- `POST /api/orders/{id}/update-status/` - Update order status
+- `POST /api/orders/{id}/add-tracking/` - Add tracking number
+
+### User-Specific Endpoints
+- `GET /api/orders/my-orders/` - Get current customer's orders
+- `GET /api/orders/store-orders/` - Get current store owner's orders
+
+## API Usage Examples
+
+### Create Order
+```bash
+POST /api/orders/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "cart_items": [
+    {
+      "product_id": "6790ce0b234b9c083b0aaf4",
+      "quantity": 2,
+      "price_snapshot": 150000.00
+    },
+    {
+      "product_id": "6790ce0b234b9c083b0aaf5",
+      "quantity": 1,
+      "price_snapshot": 200000.00
+    }
+  ],
+  "shipping_address": {
+    "firstName": "علی",
+    "lastName": "رضایی",
+    "address": "تهران، خیابان ولیعصر",
+    "city": "تهران",
+    "postalCode": "1234567890",
+    "phone": "09926067529"
+  },
+  "payment_method": "online"
+}
+```
+
+### Get My Orders
+```bash
+GET /api/orders/my-orders/
+Authorization: Bearer <customer_token>
+```
+
+### Get Store Orders
+```bash
+GET /api/orders/store-orders/
+Authorization: Bearer <store_owner_token>
+```
+
+### Update Order Status
+```bash
+POST /api/orders/{id}/update-status/
+Authorization: Bearer <store_owner_token>
+Content-Type: application/json
+
+{
+  "status": "paid"
+}
+```
+
+### Add Tracking Number
+```bash
+POST /api/orders/{id}/add-tracking/
+Authorization: Bearer <store_owner_token>
+Content-Type: application/json
+
+{
+  "tracking_number": "TRK123456789"
+}
+```

@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.db.models import Q
-from .models import Customer, StoreOwner, Product, ProductRating, Cart
-from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer
+from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem
+from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -847,3 +847,155 @@ class CartViewSet(viewsets.ModelViewSet):
                 'item_count': len(data['items'])
             }
         })
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    """ViewSet for Order operations"""
+    queryset = Order.objects.all().order_by('-created_at')
+    serializer_class = OrderSerializer
+
+    def get_queryset(self):
+        """Filter orders based on user type"""
+        user = self.request.user
+
+        if user.is_authenticated and hasattr(user, 'user_type'):
+            if user.user_type == 'customer':
+                # Customers can only see their own orders
+                return Order.objects.filter(user=user)
+            elif user.user_type == 'store_owner':
+                # Store owners can only see orders for their store
+                return Order.objects.filter(store=user)
+            elif user.is_superuser:
+                # Admins can see all orders
+                return Order.objects.all()
+
+        # Anonymous users can't see orders
+        return Order.objects.none()
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['create']:
+            # Only customers can create orders
+            return [IsCustomer()]
+        if self.action in ['list', 'retrieve']:
+            # Customers can view their own orders, store owners their store's orders, admins all
+            return [IsCustomerOrAdmin()]
+        if self.action in ['update', 'partial_update']:
+            # Store owners can update their store's orders, admins can update all
+            return [IsStoreOwnerOrAdmin()]
+        if self.action in ['destroy']:
+            # Only admins can delete orders
+            return [IsAdminRole()]
+        return [permissions.IsAuthenticated()]
+
+    def create(self, request, *args, **kwargs):
+        """Create a new order from cart items"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order = serializer.save()
+        serializer = self.get_serializer(order)
+        return Response({
+            'detail': 'Order created successfully',
+          
+        }, status=status.HTTP_201_CREATED)
+
+    # Additional Order Actions
+    @action(detail=True, methods=['post'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        """Update order status"""
+        order = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response(
+                {'detail': 'Status is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate status
+        valid_statuses = [choice[0] for choice in Order.Status.choices]
+        if new_status not in valid_statuses:
+            return Response(
+                {'detail': f'Invalid status. Valid statuses: {", ".join(valid_statuses)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check permissions - only store owners of this order's store or admins can update status
+        user = request.user
+        # if not (user.is_superuser or (hasattr(user, 'user_type') and user.user_type == 'store_owner' and order.store.id == user.id)):
+        if not (user.is_superuser or (hasattr(user, 'user_type') and user.user_type == 'customer' and order.user.id == user.id)):
+            return Response(
+                {'detail': 'You do not have permission to update this order status'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        old_status = order.status
+        order.status = new_status
+
+        # If status changed to shipped and there's no tracking number, add one
+        if new_status == 'paid' and not order.tracking_number:
+            import uuid
+            order.tracking_number = str(uuid.uuid4())[:12].upper()
+
+        order.save()
+
+        return Response({
+            'detail': 'Order status updated successfully',
+            'old_status': old_status,
+            'new_status': order.status,
+            'tracking_number': order.tracking_number
+        })
+
+    @action(detail=True, methods=['post'], url_path='add-tracking')
+    def add_tracking(self, request, pk=None):
+        """Add tracking number to order"""
+        order = self.get_object()
+        tracking_number = request.data.get('tracking_number')
+
+        if not tracking_number:
+            return Response(
+                {'detail': 'Tracking number is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check permissions
+        user = request.user
+        if not (user.is_superuser or (hasattr(user, 'user_type') and user.user_type == 'store_owner' and order.store.id == user.id)):
+            return Response(
+                {'detail': 'You do not have permission to add tracking number'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        order.tracking_number = tracking_number
+        order.save()
+
+        return Response({
+            'detail': 'Tracking number added successfully',
+            'tracking_number': order.tracking_number
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-orders')
+    def my_orders(self, request):
+        """Get current user's orders"""
+        if not (request.user.is_authenticated and hasattr(request.user, 'user_type') and request.user.user_type == 'customer'):
+            return Response(
+                {'detail': 'Only customers can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='store-orders')
+    def store_orders(self, request):
+        """Get current store owner's orders"""
+        if not (request.user.is_authenticated and hasattr(request.user, 'user_type') and request.user.user_type == 'store_owner'):
+            return Response(
+                {'detail': 'Only store owners can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)

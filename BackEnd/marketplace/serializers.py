@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Customer, StoreOwner, Product, ProductRating, ProductImage, Cart
+from .models import Customer, StoreOwner, Product, ProductRating, ProductImage, Cart, Order, OrderItem
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -96,6 +96,232 @@ class CustomerSerializer(serializers.ModelSerializer):
         password = self.initial_data.get('password')
         if password:
             instance.set_password(password)
+        instance.save()
+        return instance
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    """Serializer for OrderItem model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    product = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = [
+            'id',
+            'product',
+            'title',
+            'price',
+            'quantity',
+            'total',
+        ]
+        read_only_fields = ['id']
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_product(self, obj):
+        """Return product basic info"""
+        return {
+            'id': str(obj.product.id),
+            'title': obj.product.title,
+            'sku': obj.product.sku,
+            'image': obj.product.get_primary_image_url(),
+        }
+
+    def validate_quantity(self, value):
+        """Validate quantity is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("تعداد باید بزرگ‌تر از صفر باشد")
+        return value
+
+    def validate_price(self, value):
+        """Validate price is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("قیمت باید بزرگ‌تر از صفر باشد")
+        return value
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    """Serializer for Order model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    user = serializers.SerializerMethodField(read_only=True)
+    store = serializers.SerializerMethodField(read_only=True)
+    items = OrderItemSerializer(many=True, read_only=True)
+
+    # Computed fields
+    items_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = [
+            'id',
+            'user',
+            'store',
+            'items',
+            'total_amount',
+            'shipping_address',
+            'status',
+            'payment_method',
+            'tracking_number',
+            'items_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'user',
+            'store',
+            'items',
+            'total_amount',
+            'items_count',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_user(self, obj):
+        """Return user basic info"""
+        return {
+            'id': str(obj.user.id),
+            'full_name': obj.user.full_name,
+            'phone': obj.user.phone,
+        }
+
+    def get_store(self, obj):
+        """Return store basic info"""
+        return {
+            'id': str(obj.store.id),
+            'store_name': obj.store.store_name,
+            'full_name': obj.store.full_name,
+        }
+
+    def get_items_count(self, obj):
+        """Return number of items in order"""
+        return obj.items.count()
+
+    def validate_total_amount(self, value):
+        """Validate total amount is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("مجموع مبلغ باید بزرگ‌تر از صفر باشد")
+        return value
+
+    def validate_shipping_address(self, value):
+        """Validate shipping address structure"""
+        if not value:
+            return value
+
+        required_fields = ['firstName', 'lastName', 'address', 'city', 'postalCode', 'phone']
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("آدرس ارسال باید یک شیء باشد")
+
+        for field in required_fields:
+            if field not in value or not value[field]:
+                raise serializers.ValidationError(f"فیلد {field} در آدرس ارسال الزامی است")
+
+        return value
+
+    def create(self, validated_data):
+        """Create a new order from cart items"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        user = request.user
+        if not hasattr(user, 'user_type') or user.user_type != 'customer':
+            raise serializers.ValidationError("فقط مشتریان می‌توانند سفارش ایجاد کنند")
+
+        # Get cart items from request data
+        cart_items = request.data.get('cart_items', [])
+        if not cart_items:
+            raise serializers.ValidationError("آیتم‌های سبد خرید الزامی است")
+
+        try:
+            customer = Customer.objects.get(id=user.id)
+        except Customer.DoesNotExist:
+            raise serializers.ValidationError("مشتری یافت نشد")
+
+        # Validate cart items and create order items
+        order_items = []
+        total_amount = 0
+        store_id = None
+
+        for item in cart_items:
+            try:
+                product = Product.objects.get(id=item['product_id'], status='active')
+            except Product.DoesNotExist:
+                raise serializers.ValidationError(f"محصول با شناسه {item['product_id']} یافت نشد")
+
+            if not product.is_in_stock or product.stock < item['quantity']:
+                raise serializers.ValidationError(f"محصول {product.title} موجود نیست یا موجودی کافی ندارد")
+
+            # Check if all items are from the same store
+            if store_id and str(product.store_owner.id) != store_id:
+                raise serializers.ValidationError("تمام محصولات باید از یک فروشگاه باشند")
+            store_id = str(product.store_owner.id)
+
+            # Create order item data
+            price = product.price
+            quantity = item['quantity']
+            item_total = price * quantity
+
+            order_item = {
+                'product': product,
+                'title': product.title,
+                'price': price,
+                'quantity': quantity,
+                'total': item_total,
+            }
+            order_items.append(order_item)
+            total_amount += item_total
+
+        # Get store
+        try:
+            store = StoreOwner.objects.get(id=store_id)
+        except StoreOwner.DoesNotExist:
+            raise serializers.ValidationError("فروشگاه یافت نشد")
+
+        # Create order
+        order = Order.objects.create(
+            user=customer,
+            store=store,
+            total_amount=total_amount,
+            shipping_address=validated_data.get('shipping_address'),
+            payment_method=validated_data.get('payment_method'),
+            status=validated_data.get('status', Order.Status.PENDING),
+            tracking_number=validated_data.get('tracking_number'),
+        )
+
+        # Create order items
+        for item_data in order_items:
+            OrderItem.objects.create(
+                order=order,
+                **item_data
+            )
+
+        # Update product stock and sales
+        for item_data in order_items:
+            product = item_data['product']
+            product.stock -= item_data['quantity']
+            product.sales_count += item_data['quantity']
+            product.save()
+
+            # Update store statistics
+            store.increment_sales(item_data['total'])
+
+        return order
+
+    def update(self, instance, validated_data):
+        """Update order - only allow status and tracking number updates"""
+        allowed_fields = ['status', 'tracking_number']
+        for field in allowed_fields:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+
         instance.save()
         return instance
 
