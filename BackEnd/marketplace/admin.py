@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Customer, StoreOwner, Product, ProductImage, ProductRating
+from .models import Customer, StoreOwner, Product, ProductImage, ProductRating, Cart, Order, OrderItem
 
 
 @admin.register(Customer)
@@ -138,3 +138,51 @@ class ProductRatingAdmin(admin.ModelAdmin):
     search_fields = ('customer__first_name', 'customer__last_name', 'customer__phone', 'product__title', 'product__sku')
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(Cart)
+class CartAdmin(admin.ModelAdmin):
+    list_display = ('user_id', 'created_at', 'updated_at')
+    search_fields = ('user_id__first_name', 'user_id__last_name', 'user_id__phone')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
+
+class OrderItemInline(admin.TabularInline):
+    model = OrderItem
+    extra = 0  # Do not show extra empty forms
+    readonly_fields = ()
+
+
+@admin.register(Order)
+class OrderAdmin(admin.ModelAdmin):
+    inlines = [OrderItemInline]
+
+    list_display = ('id', 'user', 'store', 'total_amount', 'status', 'payment_method', 'created_at')
+    list_filter = ('status', 'payment_method', 'created_at')
+    search_fields = ('user__first_name', 'user__last_name', 'user__phone', 'store__store_name', 'id')
+    ordering = ('-created_at',)
+
+    fieldsets = (
+        (None, {'fields': ('user', 'store', 'total_amount')}),
+        ('Order Details', {'fields': ('status', 'payment_method', 'tracking_number')}),
+        ('Shipping', {'fields': ('shipping_address',)}),
+        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(OrderItem)
+class OrderItemAdmin(admin.ModelAdmin):
+    list_display = ('order', 'product', 'title', 'quantity', 'price', 'total')
+    list_filter = ()
+    search_fields = ('order__id', 'product__title', 'product__sku', 'title')
+    ordering = ('-order__created_at',)
+
+    fieldsets = (
+        (None, {'fields': ('order', 'product', 'title')}),
+        ('Pricing', {'fields': ('price', 'quantity', 'total')}),
+    )
+
+    readonly_fields = ()

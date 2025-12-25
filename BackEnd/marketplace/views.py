@@ -3,8 +3,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
-from .models import Customer, StoreOwner, Product, ProductRating
-from .serializers import CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer
+from django.db.models import Q
+from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem
+from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -551,6 +552,444 @@ class ProductViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], url_path='my-products')
     def my_products(self, request):
         """Get current store owner's products"""
+        if not (request.user.is_authenticated and hasattr(request.user, 'user_type') and request.user.user_type == 'store_owner'):
+            return Response(
+                {'detail': 'Only store owners can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class CategoryViewSet(viewsets.ViewSet):
+    """ViewSet for category-based operations on the home page"""
+
+    def get_permissions(self):
+        """Allow anyone to access category endpoints"""
+        return [permissions.AllowAny()]
+
+    @action(detail=True, methods=['get'], url_path='stores')
+    def stores_by_category(self, request, pk=None):
+        """Get stores that have products in the specified category"""
+        category = pk
+
+        # Validate category
+        valid_categories = ['men', 'women', 'kids']
+        if category not in valid_categories:
+            return Response(
+                {'detail': f'Invalid category. Valid categories: {", ".join(valid_categories)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get stores that have active products in this category
+        stores = StoreOwner.objects.filter(
+            products__category=category,
+            products__status='active',
+            seller_status='approved'
+        ).distinct()
+
+        # Format response
+        store_list = []
+        for store in stores:
+            store_data = {
+                'id': str(store.id),
+                'store_name': store.store_name,
+                'store_rating': store.store_rating or {'average': 0, 'count': 0},
+                'store_logo': store.store_logo.url if store.store_logo else None,
+                'products_count': store.products.filter(
+                    category=category,
+                    status='active'
+                ).count()
+            }
+            store_list.append(store_data)
+
+        return Response({
+            'category': category,
+            'stores': store_list,
+            'total_stores': len(store_list)
+        })
+
+    @action(detail=True, methods=['get'], url_path=r'stores/(?P<store_id>[^/]+)/products')
+    def products_by_store_category(self, request, pk=None, store_id=None):
+        """Get products of a specific store in the specified category"""
+        category = pk
+        store_id = store_id
+
+        # Validate category
+        valid_categories = ['men', 'women', 'kids']
+        if category not in valid_categories:
+            return Response(
+                {'detail': f'Invalid category. Valid categories: {", ".join(valid_categories)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate store exists and has products in this category
+        try:
+            store = StoreOwner.objects.get(id=store_id, seller_status='approved')
+        except StoreOwner.DoesNotExist:
+            return Response(
+                {'detail': 'Store not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get products
+        products = Product.objects.filter(
+            store_owner=store,
+            category=category,
+            status='active'
+        ).order_by('-created_at')
+
+        # Serialize products
+        serializer = ProductSerializer(products, many=True, context={'request': request})
+
+        return Response({
+            'category': category,
+            'store': {
+                'id': str(store.id),
+                'store_name': store.store_name,
+                'store_rating': store.store_rating or {'average': 0, 'count': 0}
+            },
+            'products': serializer.data,
+            'total_products': len(serializer.data)
+        })
+
+
+class CartViewSet(viewsets.ModelViewSet):
+    """ViewSet for Cart operations"""
+    queryset = Cart.objects.all().order_by('-created_at')
+    serializer_class = CartSerializer
+
+    def get_queryset(self):
+        """Filter carts - customers can only see their own cart, admins can see all"""
+        user = self.request.user
+
+        if user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'customer':
+            # Customers can only see their own cart
+            return Cart.objects.filter(user_id=user)
+        elif user.is_authenticated and user.is_superuser:
+            # Admins can see all carts
+            return Cart.objects.all()
+        else:
+            # Anonymous users or other types can't see carts
+            return Cart.objects.none()
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve']:
+            # Customers can view their own cart, admins can view all
+            return [IsCustomerOrAdmin()]
+        if self.action in ['create', 'update', 'partial_update', 'destroy',
+                          'add_item', 'update_item', 'remove_item', 'clear_cart']:
+            # Only customers can manage their own cart
+            return [IsCustomer()]
+        return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        """Override to get cart by user for 'me' lookup"""
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value == 'me':
+            if not self.request.user.is_authenticated:
+                raise PermissionDenied("Authentication required")
+            if not hasattr(self.request.user, 'user_type') or self.request.user.user_type != 'customer':
+                raise PermissionDenied("Only customers can access their cart")
+
+            # Get the Customer instance
+            try:
+                customer = Customer.objects.get(id=self.request.user.id)
+            except Customer.DoesNotExist:
+                raise PermissionDenied("Customer profile not found")
+
+            # Get or create cart for the customer
+            cart, created = Cart.objects.get_or_create(user_id=customer)
+            return cart
+
+        return super().get_object()
+
+    def create(self, request, *args, **kwargs):
+        """Create a new cart - actually uses get_or_create"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cart = serializer.save()
+        serializer = self.get_serializer(cart)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    # Cart Item Management Actions
+    @action(detail=True, methods=['post'], url_path='add-item')
+    def add_item(self, request, pk=None):
+        """Add an item to the cart"""
+        cart = self.get_object()
+
+        # Validate item data
+        item_data = request.data
+        if not item_data:
+            return Response(
+                {'detail': 'Item data is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        item_serializer = CartItemSerializer(data=item_data)
+        if not item_serializer.is_valid():
+            return Response(item_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        validated_item = item_serializer.validated_data
+
+        # Check if item already exists in cart
+        existing_item = None
+        for item in cart.items:
+            if item['product_id'] == validated_item['product_id']:
+                existing_item = item
+                break
+
+        if existing_item:
+            # Update quantity
+            existing_item['quantity'] += validated_item['quantity']
+            cart.save()
+            return Response({
+                'detail': 'Item quantity updated successfully',
+            })
+        else:
+            # Add new item
+            cart.items.append(validated_item)
+            cart.save()
+            return Response({
+                'detail': 'Item added to cart successfully',
+            })
+
+    @action(detail=True, methods=['put', 'patch'], url_path=r'update-item/(?P<product_id>[^/]+)')
+    def update_item(self, request, pk=None, product_id=None):
+        """Update an item in the cart"""
+        cart = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Find the item
+        item_found = False
+        for item in cart.items:
+            if item['product_id'] == product_id:
+                # Update item fields
+                if 'quantity' in request.data:
+                    item['quantity'] = request.data['quantity']
+                if 'color' in request.data:
+                    item['color'] = request.data['color']
+                if 'size' in request.data:
+                    item['size'] = request.data['size']
+                item_found = True
+                break
+
+        if not item_found:
+            return Response(
+                {'detail': 'Item not found in cart'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Validate updated item
+        item_serializer = CartItemSerializer(data=item)
+        if not item_serializer.is_valid():
+            return Response(item_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        cart.save()
+        return Response({
+            'detail': 'Item updated successfully',
+            'item': item
+        })
+
+    @action(detail=True, methods=['delete'], url_path=r'remove-item/(?P<product_id>[^/]+)')
+    def remove_item(self, request, pk=None, product_id=None):
+        """Remove an item from the cart"""
+        cart = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Find and remove the item
+        original_length = len(cart.items)
+        cart.items = [item for item in cart.items if item['product_id'] != product_id]
+
+        if len(cart.items) == original_length:
+            return Response(
+                {'detail': 'Item not found in cart'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        cart.save()
+        return Response({'detail': 'Item removed from cart successfully'})
+
+    @action(detail=True, methods=['post'], url_path='clear')
+    def clear_cart(self, request, pk=None):
+        """Clear all items from the cart"""
+        cart = self.get_object()
+        cart.items = []
+        cart.save()
+        return Response({'detail': 'Cart cleared successfully'})
+
+    # Additional Cart Actions
+    @action(detail=True, methods=['get'], url_path='summary')
+    def summary(self, request, pk=None):
+        """Get cart summary with totals"""
+        cart = self.get_object()
+        serializer = self.get_serializer(cart)
+        data = serializer.data
+
+        return Response({
+            'cart': data,
+            'summary': {
+                'total_items': data['total_items'],
+                'total_price': str(data['total_price']),
+                'item_count': len(data['items'])
+            }
+        })
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    """ViewSet for Order operations"""
+    queryset = Order.objects.all().order_by('-created_at')
+    serializer_class = OrderSerializer
+
+    def get_queryset(self):
+        """Filter orders based on user type"""
+        user = self.request.user
+
+        if user.is_authenticated and hasattr(user, 'user_type'):
+            if user.user_type == 'customer':
+                # Customers can only see their own orders
+                return Order.objects.filter(user=user)
+            elif user.user_type == 'store_owner':
+                # Store owners can only see orders for their store
+                return Order.objects.filter(store=user)
+            elif user.is_superuser:
+                # Admins can see all orders
+                return Order.objects.all()
+
+        # Anonymous users can't see orders
+        return Order.objects.none()
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['create']:
+            # Only customers can create orders
+            return [IsCustomer()]
+        if self.action in ['list', 'retrieve']:
+            # Customers can view their own orders, store owners their store's orders, admins all
+            return [IsCustomerOrAdmin()]
+        if self.action in ['update', 'partial_update']:
+            # Store owners can update their store's orders, admins can update all
+            return [IsStoreOwnerOrAdmin()]
+        if self.action in ['destroy']:
+            # Only admins can delete orders
+            return [IsAdminRole()]
+        return [permissions.IsAuthenticated()]
+
+    def create(self, request, *args, **kwargs):
+        """Create a new order from cart items"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order = serializer.save()
+        serializer = self.get_serializer(order)
+        return Response({
+            'detail': 'Order created successfully',
+          
+        }, status=status.HTTP_201_CREATED)
+
+    # Additional Order Actions
+    @action(detail=True, methods=['post'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        """Update order status"""
+        order = self.get_object()
+        new_status = request.data.get('status')
+
+        if not new_status:
+            return Response(
+                {'detail': 'Status is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validate status
+        valid_statuses = [choice[0] for choice in Order.Status.choices]
+        if new_status not in valid_statuses:
+            return Response(
+                {'detail': f'Invalid status. Valid statuses: {", ".join(valid_statuses)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check permissions - only store owners of this order's store or admins can update status
+        user = request.user
+        # if not (user.is_superuser or (hasattr(user, 'user_type') and user.user_type == 'store_owner' and order.store.id == user.id)):
+        if not (user.is_superuser or (hasattr(user, 'user_type') and user.user_type == 'customer' and order.user.id == user.id)):
+            return Response(
+                {'detail': 'You do not have permission to update this order status'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        old_status = order.status
+        order.status = new_status
+
+        # If status changed to shipped and there's no tracking number, add one
+        if new_status == 'paid' and not order.tracking_number:
+            import uuid
+            order.tracking_number = str(uuid.uuid4())[:12].upper()
+
+        order.save()
+
+        return Response({
+            'detail': 'Order status updated successfully',
+            'old_status': old_status,
+            'new_status': order.status,
+            'tracking_number': order.tracking_number
+        })
+
+    @action(detail=True, methods=['post'], url_path='add-tracking')
+    def add_tracking(self, request, pk=None):
+        """Add tracking number to order"""
+        order = self.get_object()
+        tracking_number = request.data.get('tracking_number')
+
+        if not tracking_number:
+            return Response(
+                {'detail': 'Tracking number is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Check permissions
+        user = request.user
+        if not (user.is_superuser or (hasattr(user, 'user_type') and user.user_type == 'store_owner' and order.store.id == user.id)):
+            return Response(
+                {'detail': 'You do not have permission to add tracking number'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        order.tracking_number = tracking_number
+        order.save()
+
+        return Response({
+            'detail': 'Tracking number added successfully',
+            'tracking_number': order.tracking_number
+        })
+
+    @action(detail=False, methods=['get'], url_path='my-orders')
+    def my_orders(self, request):
+        """Get current user's orders"""
+        if not (request.user.is_authenticated and hasattr(request.user, 'user_type') and request.user.user_type == 'customer'):
+            return Response(
+                {'detail': 'Only customers can access this endpoint'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='store-orders')
+    def store_orders(self, request):
+        """Get current store owner's orders"""
         if not (request.user.is_authenticated and hasattr(request.user, 'user_type') and request.user.user_type == 'store_owner'):
             return Response(
                 {'detail': 'Only store owners can access this endpoint'},

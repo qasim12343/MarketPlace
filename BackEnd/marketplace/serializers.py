@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Customer, StoreOwner, Product, ProductRating,ProductImage
+from .models import Customer, StoreOwner, Product, ProductRating, ProductImage, Cart, Order, OrderItem
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -97,6 +97,397 @@ class CustomerSerializer(serializers.ModelSerializer):
         if password:
             instance.set_password(password)
         instance.save()
+        return instance
+
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    """Serializer for OrderItem model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    product = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = OrderItem
+        fields = [
+            'id',
+            'product',
+            'title',
+            'price',
+            'quantity',
+            'total',
+        ]
+        read_only_fields = ['id']
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_product(self, obj):
+        """Return product basic info"""
+        return {
+            'id': str(obj.product.id),
+            'title': obj.product.title,
+            'sku': obj.product.sku,
+            'image': obj.product.get_primary_image_url(),
+        }
+
+    def validate_quantity(self, value):
+        """Validate quantity is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("تعداد باید بزرگ‌تر از صفر باشد")
+        return value
+
+    def validate_price(self, value):
+        """Validate price is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("قیمت باید بزرگ‌تر از صفر باشد")
+        return value
+
+
+class OrderSerializer(serializers.ModelSerializer):
+    """Serializer for Order model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    user = serializers.SerializerMethodField(read_only=True)
+    store = serializers.SerializerMethodField(read_only=True)
+    items = OrderItemSerializer(many=True, read_only=True)
+
+    # Computed fields
+    items_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = [
+            'id',
+            'user',
+            'store',
+            'items',
+            'total_amount',
+            'shipping_address',
+            'status',
+            'payment_method',
+            'tracking_number',
+            'items_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'user',
+            'store',
+            'items',
+            'total_amount',
+            'items_count',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_user(self, obj):
+        """Return user basic info"""
+        return {
+            'id': str(obj.user.id),
+            'full_name': obj.user.full_name,
+            'phone': obj.user.phone,
+        }
+
+    def get_store(self, obj):
+        """Return store basic info"""
+        return {
+            'id': str(obj.store.id),
+            'store_name': obj.store.store_name,
+            'full_name': obj.store.full_name,
+        }
+
+    def get_items_count(self, obj):
+        """Return number of items in order"""
+        return obj.items.count()
+
+    def validate_total_amount(self, value):
+        """Validate total amount is positive"""
+        if value <= 0:
+            raise serializers.ValidationError("مجموع مبلغ باید بزرگ‌تر از صفر باشد")
+        return value
+
+    def validate_shipping_address(self, value):
+        """Validate shipping address structure"""
+        if not value:
+            return value
+
+        required_fields = ['firstName', 'lastName', 'address', 'city', 'postalCode', 'phone']
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("آدرس ارسال باید یک شیء باشد")
+
+        for field in required_fields:
+            if field not in value or not value[field]:
+                raise serializers.ValidationError(f"فیلد {field} در آدرس ارسال الزامی است")
+
+        return value
+
+    def create(self, validated_data):
+        """Create a new order from cart items"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        user = request.user
+        if not hasattr(user, 'user_type') or user.user_type != 'customer':
+            raise serializers.ValidationError("فقط مشتریان می‌توانند سفارش ایجاد کنند")
+
+        # Get cart items from request data
+        cart_items = request.data.get('cart_items', [])
+        if not cart_items:
+            raise serializers.ValidationError("آیتم‌های سبد خرید الزامی است")
+
+        try:
+            customer = Customer.objects.get(id=user.id)
+        except Customer.DoesNotExist:
+            raise serializers.ValidationError("مشتری یافت نشد")
+
+        # Validate cart items and create order items
+        order_items = []
+        total_amount = 0
+        store_id = None
+
+        for item in cart_items:
+            try:
+                product = Product.objects.get(id=item['product_id'], status='active')
+            except Product.DoesNotExist:
+                raise serializers.ValidationError(f"محصول با شناسه {item['product_id']} یافت نشد")
+
+            if not product.is_in_stock or product.stock < item['quantity']:
+                raise serializers.ValidationError(f"محصول {product.title} موجود نیست یا موجودی کافی ندارد")
+
+            # Check if all items are from the same store
+            if store_id and str(product.store_owner.id) != store_id:
+                raise serializers.ValidationError("تمام محصولات باید از یک فروشگاه باشند")
+            store_id = str(product.store_owner.id)
+
+            # Create order item data
+            price = product.price
+            quantity = item['quantity']
+            item_total = price * quantity
+
+            order_item = {
+                'product': product,
+                'title': product.title,
+                'price': price,
+                'quantity': quantity,
+                'total': item_total,
+            }
+            order_items.append(order_item)
+            total_amount += item_total
+
+        # Get store
+        try:
+            store = StoreOwner.objects.get(id=store_id)
+        except StoreOwner.DoesNotExist:
+            raise serializers.ValidationError("فروشگاه یافت نشد")
+
+        # Create order
+        order = Order.objects.create(
+            user=customer,
+            store=store,
+            total_amount=total_amount,
+            shipping_address=validated_data.get('shipping_address'),
+            payment_method=validated_data.get('payment_method'),
+            status=validated_data.get('status', Order.Status.PENDING),
+            tracking_number=validated_data.get('tracking_number'),
+        )
+
+        # Create order items
+        for item_data in order_items:
+            OrderItem.objects.create(
+                order=order,
+                **item_data
+            )
+
+        # Update product stock and sales
+        for item_data in order_items:
+            product = item_data['product']
+            product.stock -= item_data['quantity']
+            product.sales_count += item_data['quantity']
+            product.save()
+
+            # Update store statistics
+            store.increment_sales(item_data['total'])
+
+        return order
+
+    def update(self, instance, validated_data):
+        """Update order - only allow status and tracking number updates"""
+        allowed_fields = ['status', 'tracking_number']
+        for field in allowed_fields:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+
+        instance.save()
+        return instance
+
+
+class CartItemSerializer(serializers.Serializer):
+    """Serializer for individual cart items"""
+    product_id = serializers.CharField(required=True)
+    quantity = serializers.IntegerField(min_value=1, default=1)
+    price_snapshot = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+    color = serializers.CharField(max_length=50, default="", required=False)
+    size = serializers.CharField(max_length=50, default="", required=False)
+    owner_store_id = serializers.CharField(required=True)
+
+    def validate_product_id(self, value):
+        """Validate product exists and is active"""
+        try:
+            product = Product.objects.get(id=value, status='active')
+            if not product.is_in_stock:
+                raise serializers.ValidationError("محصول موجود نیست")
+        except Product.DoesNotExist:
+            raise serializers.ValidationError("محصول یافت نشد")
+        return value
+
+    def validate_owner_store_id(self, value):
+        """Validate store exists"""
+        try:
+            StoreOwner.objects.get(id=value)
+        except StoreOwner.DoesNotExist:
+            raise serializers.ValidationError("فروشگاه یافت نشد")
+        return value
+
+    def validate_price_snapshot(self, value):
+        """Convert Decimal to float for MongoDB compatibility"""
+        if isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                raise serializers.ValidationError("قیمت باید یک عدد معتبر باشد")
+        elif hasattr(value, '__float__'):
+            value = float(value)
+        return value
+
+    def to_internal_value(self, data):
+        """Convert Decimal to float for MongoDB compatibility"""
+        ret = super().to_internal_value(data)
+        if 'price_snapshot' in ret and hasattr(ret['price_snapshot'], '__float__'):
+            ret['price_snapshot'] = float(ret['price_snapshot'])
+        return ret
+
+
+class CartSerializer(serializers.ModelSerializer):
+    """Serializer for Cart model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    user_id = serializers.SerializerMethodField(read_only=True)
+    items = serializers.ListField(child=CartItemSerializer(), default=list)
+
+    # Computed fields
+    total_items = serializers.SerializerMethodField()
+    total_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cart
+        fields = [
+            'id',
+            'user_id',
+            'items',
+            'total_items',
+            'total_price',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'user_id',
+            'total_items',
+            'total_price',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_user_id(self, obj):
+        """Return user basic info"""
+        return {
+            'id': str(obj.user_id.id),
+            'full_name': obj.user_id.full_name,
+            'phone': obj.user_id.phone,
+        }
+
+    def get_total_items(self, obj):
+        """Calculate total number of items in cart"""
+        return sum(item.get('quantity', 0) for item in obj.items)
+
+    def get_total_price(self, obj):
+        """Calculate total price of all items in cart"""
+        return sum(
+            item.get('price_snapshot', 0) * item.get('quantity', 0)
+            for item in obj.items
+        )
+
+    def validate_items(self, value):
+        """Validate cart items"""
+        if not isinstance(value, list):
+            raise serializers.ValidationError("آیتم‌های سبد خرید باید یک لیست باشد")
+
+        if len(value) == 0:
+            return value
+
+        # Check for duplicate product_ids
+        product_ids = [item.get('product_id') for item in value]
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError("محصولات تکراری در سبد خرید مجاز نیستند")
+
+        # Validate each item
+        for item in value:
+            item_serializer = CartItemSerializer(data=item)
+            if not item_serializer.is_valid():
+                raise serializers.ValidationError(item_serializer.errors)
+
+        return value
+
+    def to_internal_value(self, data):
+        """Convert all Decimal objects to float for MongoDB compatibility"""
+        ret = super().to_internal_value(data)
+
+        # Convert Decimal objects in items to float
+        if 'items' in ret:
+            for item in ret['items']:
+                if 'price_snapshot' in item and hasattr(item['price_snapshot'], '__float__'):
+                    item['price_snapshot'] = float(item['price_snapshot'])
+
+        return ret
+
+    def create(self, validated_data):
+        """Create a new cart - should use get_or_create instead"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        user = request.user
+        if not hasattr(user, 'user_type') or user.user_type != 'customer':
+            raise serializers.ValidationError("فقط مشتریان می‌توانند سبد خرید داشته باشند")
+
+        try:
+            customer = Customer.objects.get(id=user.id)
+        except Customer.DoesNotExist:
+            raise serializers.ValidationError("مشتری یافت نشد")
+
+        # Use get_or_create for cart
+        cart, created = Cart.objects.get_or_create(user_id=customer)
+        if not created:
+            # Update existing cart items if provided
+            if 'items' in validated_data:
+                cart.items = validated_data['items']
+                cart.save()
+
+        return cart
+
+    def update(self, instance, validated_data):
+        """Update cart items"""
+        if 'items' in validated_data:
+            instance.items = validated_data['items']
+            instance.save()
         return instance
 
 
