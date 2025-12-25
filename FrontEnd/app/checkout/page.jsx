@@ -1496,7 +1496,7 @@ export default function CheckoutPage() {
               {/* Right Column - Order Summary */}
               <div className="space-y-6">
                 {/* Order Summary Card */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 sticky top-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 top-6">
                   <div className="p-6 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">
                       خلاصه سفارش
