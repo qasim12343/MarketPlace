@@ -332,19 +332,20 @@ class ProductViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = Product.objects.all()
 
-        # If user is store owner, only show their products
+        # If user is store owner, show all their products (active and inactive)
         if user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'store_owner':
             queryset = queryset.filter(store_owner=user)
         # If user is admin, show all products
+        elif user.is_authenticated and user.is_superuser:
+            # Admins can see all products (active and inactive)
+            pass  # No filtering needed
         # For anonymous users or customers, only show active products
-
-        # Filter by status - only show active products for non-store-owner users
-        if not (user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'store_owner' and user.is_superuser):
+        else:
             queryset = queryset.filter(status='active')
 
         # Apply ordering
         queryset = queryset.order_by('-created_at')
-        
+
         return queryset
 
     def get_permissions(self):
@@ -365,13 +366,15 @@ class ProductViewSet(viewsets.ModelViewSet):
         if self.action in ['rate_product', 'get_my_rating', 'update_my_rating']:
             # Only customers and admins can rate products
             return [IsCustomerOrAdmin()]
+        if self.action in ['store_products']:
+            # Authenticated users can fetch products by store owner
+            return [permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
         product_data = request.data
         product_images = request.FILES.getlist('images')
-        print(product_data)
-        print(product_images)
+       
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         pr = serializer.save(store_owner=request.user)
@@ -561,6 +564,41 @@ class ProductViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path=r'store/(?P<store_owner_id>[^/]+)')
+    def store_products(self, request, store_owner_id=None):
+        """Get active products of a specific store owner (accessible by customers)"""
+        if not store_owner_id:
+            return Response(
+                {'detail': 'Store owner ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            store_owner = StoreOwner.objects.get(id=store_owner_id)
+        except StoreOwner.DoesNotExist:
+            return Response(
+                {'detail': 'Store owner not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get active products of this store owner
+        products = Product.objects.filter(
+            store_owner=store_owner,
+            status='active'
+        ).order_by('-created_at')
+
+        # Serialize products
+        serializer = self.get_serializer(products, many=True)
+        return Response({
+            'store': {
+                'id': str(store_owner.id),
+                'store_name': store_owner.store_name,
+                'store_rating': store_owner.store_rating or {'average': 0, 'count': 0}
+            },
+            'products': serializer.data,
+            'total_products': len(serializer.data)
+        })
 
 
 class CategoryViewSet(viewsets.ViewSet):

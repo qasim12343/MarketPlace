@@ -76,6 +76,7 @@ then get the access token
 
 ### Product CRUD
 - `GET /api/products/` - List products (filtered by status for non-store-owners)
+- `GET http://127.0.0.1:8000/api/products/store/{store_owner_id}/`-Fetch Products by Store Owner (Customer API)
 - `POST /api/products/` - Create product (store owners only)
 - `GET /api/products/{id}/` - Get product details
 - `PUT /api/products/{id}/` - Update product (store owners/admins only)
@@ -124,7 +125,6 @@ then get the access token
 
 ## Increment View Count:
 - POST http://127.0.0.1:8000/api/products/{id}/view/
-
 
 //////////////////////////////
 # Category API for Home Page
