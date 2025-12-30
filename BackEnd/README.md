@@ -201,6 +201,68 @@ POST /api/carts/me/clear/
 Authorization: Bearer <customer_token>
 ```
 
+
+//////////////////////////////
+# Comments
+
+### Comment CRUD
+- `GET /api/comments/` - List all comments (optionally filtered by product_id)
+- `POST /api/comments/` - Create new comment on a product (authenticated users)
+- `GET /api/comments/{id}/` - Get specific comment with replies
+- `PUT /api/comments/{id}/` - Update own comment (only author)
+- `PATCH /api/comments/{id}/` - Partial update own comment (only author)
+- `DELETE /api/comments/{id}/` - Delete own comment (author or admin)
+
+### Comment Features
+- `GET /api/comments/product/{product_id}/` - Get all comments for a specific product
+- `POST /api/comments/{id}/reply/` - Reply to a specific comment
+
+## Permissions
+- **Customers**: Can create top-level comments on any product
+- **Store Owners**: Can reply to comments on their own products
+- **Admins**: Can reply to comments on any product
+
+## API Usage Examples
+
+### Create Comment
+```bash
+POST /api/comments/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "product": "6790ce0b234b9c083b0aaf4",
+  "content": "این محصول عالی است!"
+}
+```
+
+### Reply to Comment
+```bash
+POST /api/comments/{comment_id}/reply/
+Authorization: Bearer <store_owner_token>
+Content-Type: application/json
+
+{
+  "content": "ممنون از نظر شما. خوشحالیم که راضی هستید."
+}
+```
+
+### Get Product Comments
+```bash
+GET /api/comments/product/{product_id}/
+```
+
+### Update Own Comment
+```bash
+PUT /api/comments/{comment_id}/
+Authorization: Bearer <author_token>
+Content-Type: application/json
+
+{
+  "content": "محصول عالی است، پیشنهاد می‌کنم!"
+}
+```
+
 //////////////////////////////
 # Order
 
@@ -301,12 +363,6 @@ Content-Type: application/json
 
 ## API Usage Examples
 
-### Get User's Wishlist
-```bash
-GET /api/wishlists/me/
-Authorization: Bearer <customer_token>
-```
-
 ### Add Product to Wishlist
 ```bash
 POST /api/wishlists/me/add/
@@ -317,23 +373,3 @@ Content-Type: application/json
   "product_id": "6790ce0b234b9c083b0aaf4"
 }
 ```
-
-### Check if Product is in Wishlist
-```bash
-GET /api/wishlists/me/check/6790ce0b234b9c083b0aaf4/
-Authorization: Bearer <customer_token>
-```
-
-### Remove Product from Wishlist
-```bash
-DELETE /api/wishlists/me/remove/6790ce0b234b9c083b0aaf4/
-Authorization: Bearer <customer_token>
-```
-
-### Clear Wishlist
-```bash
-POST /api/wishlists/me/clear/
-Authorization: Bearer <customer_token>
-```
-
-

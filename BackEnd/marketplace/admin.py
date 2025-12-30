@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Customer, StoreOwner, Product, ProductImage, ProductRating, Cart, Order, OrderItem
+from .models import Customer, StoreOwner, Product, ProductImage, ProductRating, Cart, Order, OrderItem, Comment
 
 
 @admin.register(Customer)
@@ -152,6 +152,31 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0  # Do not show extra empty forms
     readonly_fields = ()
+
+
+@admin.register(Comment)
+class CommentAdmin(admin.ModelAdmin):
+    list_display = ('author', 'product', 'content_preview', 'is_reply', 'created_at')
+    list_filter = ('created_at', 'product__store_owner')
+    search_fields = ('author__first_name', 'author__last_name', 'author__phone', 'product__title', 'content')
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at', 'updated_at')
+
+    fieldsets = (
+        (None, {'fields': ('product', 'author', 'content', 'parent')}),
+        ('Timestamps', {'fields': ('created_at', 'updated_at')}),
+    )
+
+    def content_preview(self, obj):
+        """Show preview of comment content"""
+        return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
+    content_preview.short_description = 'Content Preview'
+
+    def is_reply(self, obj):
+        """Show if comment is a reply"""
+        return obj.is_reply
+    is_reply.boolean = True
+    is_reply.short_description = 'Is Reply'
 
 
 @admin.register(Order)

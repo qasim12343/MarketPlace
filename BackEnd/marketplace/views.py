@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.db.models import Q
-from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem, Wishlist, WishlistItem
-from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer, WishlistSerializer, WishlistItemSerializer, AddToWishlistSerializer
+from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem, Wishlist, WishlistItem, Comment
+from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer, WishlistSerializer, WishlistItemSerializer, AddToWishlistSerializer, CommentSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -564,6 +564,130 @@ class ProductViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """ViewSet for Comment operations"""
+    queryset = Comment.objects.all().order_by('-created_at')
+    serializer_class = CommentSerializer
+
+    def get_queryset(self):
+        """Filter comments - everyone can see comments, but filtered by product"""
+        queryset = Comment.objects.all()
+
+        # Filter by product if provided
+        product_id = self.request.query_params.get('product_id')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        # For nested comments, only show top-level comments by default
+        # Replies are included in the 'replies' field of parent comments
+        queryset = queryset.filter(parent__isnull=True)
+
+        return queryset.order_by('-created_at')
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve']:
+            # Anyone can view comments
+            return [permissions.AllowAny()]
+        if self.action in ['create']:
+            # Only authenticated users can create comments
+            return [permissions.IsAuthenticated()]
+        if self.action in ['update', 'partial_update', 'destroy']:
+            # Only comment author can update their own comments
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated()]
+
+    def get_serializer_context(self):
+        """Add product_id to serializer context"""
+        context = super().get_serializer_context()
+        # Get product_id from URL if it's a product-scoped action
+        if 'product_pk' in self.kwargs:
+            context['product_id'] = self.kwargs['product_pk']
+        elif 'product_id' in self.request.query_params:
+            context['product_id'] = self.request.query_params['product_id']
+        return context
+
+    def create(self, request, *args, **kwargs):
+        """Create a new comment - must be associated with a product"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = serializer.save()
+        serializer = self.get_serializer(comment)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, instance, validated_data):
+        """Update comment - only allow content updates"""
+        # Check if user can update this comment (only author)
+        if instance.author != self.request.user:
+            raise PermissionDenied("You can only update your own comments")
+
+        # Only allow updating content
+        if 'content' in validated_data:
+            instance.content = validated_data['content']
+            instance.save()
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def destroy(self, instance, *args, **kwargs):
+        """Delete comment - only author or admin can delete"""
+        if instance.author != self.request.user and not self.request.user.is_superuser:
+            raise PermissionDenied("You can only delete your own comments")
+
+        # Soft delete or hard delete? For now, hard delete
+        # But in production, consider soft delete
+        instance.delete()
+        return Response({'detail': 'Comment deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+
+    # Custom actions for product-specific comments
+    @action(detail=False, methods=['get'], url_path=r'product/(?P<product_id>[^/]+)')
+    def product_comments(self, request, product_id=None):
+        """Get all comments for a specific product"""
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get top-level comments for this product
+        comments = Comment.objects.filter(
+            product_id=product_id,
+            parent__isnull=True
+        ).order_by('-created_at')
+
+        serializer = self.get_serializer(comments, many=True)
+        return Response({
+            'product_id': product_id,
+            'comments': serializer.data,
+            'total_comments': len(serializer.data)
+        })
+
+    @action(detail=True, methods=['post'], url_path='reply')
+    def reply_to_comment(self, request, pk=None):
+        """Reply to a specific comment"""
+        parent_comment = self.get_object()
+
+        # Check if user can reply to this comment
+        if not parent_comment.can_reply(request.user):
+            return Response(
+                {'detail': 'You do not have permission to reply to this comment'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Create reply data
+        reply_data = {
+            'content': request.data.get('content'),
+            'parent': str(parent_comment.id)
+        }
+
+        serializer = self.get_serializer(data=reply_data)
+        serializer.is_valid(raise_exception=True)
+        reply = serializer.save()
+
+        serializer = self.get_serializer(reply)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class WishlistViewSet(viewsets.GenericViewSet):

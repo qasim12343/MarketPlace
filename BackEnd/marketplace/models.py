@@ -1020,6 +1020,73 @@ class WishlistItem(models.Model):
         return f"{self.product.title} in {self.wishlist.user.full_name}'s wishlist"
 
 
+class Comment(models.Model):
+    """
+    Comment model for product comments and replies.
+    Customers can comment on products, store owners and admins can reply.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        help_text="محصول مورد نظر"
+    )
+    author = models.ForeignKey(
+        BaseUser,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        help_text="نویسنده نظر"
+    )
+    content = models.TextField(
+        help_text="متن نظر",
+        validators=[MinLengthValidator(1)],
+        error_messages={'required': "متن نظر الزامی است"}
+    )
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='replies',
+        help_text="نظر والد (برای پاسخ‌ها)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Comment"
+        verbose_name_plural = "Comments"
+        indexes = [
+            models.Index(fields=['product']),
+            models.Index(fields=['author']),
+            models.Index(fields=['parent']),
+            models.Index(fields=['created_at']),
+        ]
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment by {self.author.full_name} on {self.product.title}"
+
+    @property
+    def is_reply(self):
+        """Check if this comment is a reply"""
+        return self.parent is not None
+
+    def get_replies(self):
+        """Get all direct replies to this comment"""
+        return self.replies.all()
+
+    def can_reply(self, user):
+        """Check if a user can reply to this comment"""
+        if user.is_superuser:
+            return True  # Admin can reply to any comment
+        if user.user_type == 'store_owner' and self.product.store_owner == user:
+            return True  # Store owner can reply to comments on their products
+        return False
+
+
 class Wishlist(models.Model):
     """
     Wishlist model representing a user's wishlist.
