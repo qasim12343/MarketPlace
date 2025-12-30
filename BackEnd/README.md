@@ -285,4 +285,55 @@ Content-Type: application/json
 {
   "tracking_number": "TRK123456789"
 }
+
+//////////////////////////////
+# Wishlist
+
+### Wishlist CRUD
+- `GET /api/wishlists/me/` - Get current user's wishlist with populated products
+- `GET /api/wishlists/{id}/` - Get specific wishlist details (admin/customers only)
+
+### Wishlist Management
+- `POST /api/wishlists/me/add/` - Add product to wishlist
+- `DELETE /api/wishlists/me/remove/{product_id}/` - Remove product from wishlist
+- `POST /api/wishlists/me/clear/` - Clear all items from wishlist
+- `GET /api/wishlists/me/check/{product_id}/` - Check if product is in user's wishlist
+
+## API Usage Examples
+
+### Get User's Wishlist
+```bash
+GET /api/wishlists/me/
+Authorization: Bearer <customer_token>
 ```
+
+### Add Product to Wishlist
+```bash
+POST /api/wishlists/me/add/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "product_id": "6790ce0b234b9c083b0aaf4"
+}
+```
+
+### Check if Product is in Wishlist
+```bash
+GET /api/wishlists/me/check/6790ce0b234b9c083b0aaf4/
+Authorization: Bearer <customer_token>
+```
+
+### Remove Product from Wishlist
+```bash
+DELETE /api/wishlists/me/remove/6790ce0b234b9c083b0aaf4/
+Authorization: Bearer <customer_token>
+```
+
+### Clear Wishlist
+```bash
+POST /api/wishlists/me/clear/
+Authorization: Bearer <customer_token>
+```
+
+

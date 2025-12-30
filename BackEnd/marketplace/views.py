@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.db.models import Q
-from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem
-from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer
+from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem, Wishlist, WishlistItem
+from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer, WishlistSerializer, WishlistItemSerializer, AddToWishlistSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -564,6 +564,117 @@ class ProductViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class WishlistViewSet(viewsets.GenericViewSet):
+    """ViewSet for Wishlist operations"""
+    queryset = Wishlist.objects.all().order_by('-created_at')
+    serializer_class = WishlistSerializer
+
+    def get_queryset(self):
+        """Filter wishlists - customers can only see their own wishlist, admins can see all"""
+        user = self.request.user
+
+        if user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'customer':
+            # Customers can only see their own wishlist
+            return Wishlist.objects.filter(user=user)
+        elif user.is_authenticated and user.is_superuser:
+            # Admins can see all wishlists
+            return Wishlist.objects.all()
+        else:
+            # Anonymous users can't see wishlists
+            return Wishlist.objects.none()
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve', 'add_product', 'remove_product', 'clear', 'check_product']:
+            # Customers can manage their own wishlist, admins can view all
+            return [IsCustomerOrAdmin()]
+        return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        """Override to get wishlist by user for 'me' lookup"""
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value == 'me':
+            if not self.request.user.is_authenticated:
+                raise PermissionDenied("Authentication required")
+            if not hasattr(self.request.user, 'user_type') or self.request.user.user_type != 'customer':
+                raise PermissionDenied("Only customers can access their wishlist")
+
+            # Get the Customer instance
+            try:
+                customer = Customer.objects.get(id=self.request.user.id)
+            except Customer.DoesNotExist:
+                raise PermissionDenied("Customer profile not found")
+
+            # Get or create wishlist for the customer
+            wishlist, created = Wishlist.objects.get_or_create(user=customer)
+            return wishlist
+
+        return super().get_object()
+
+    def list(self, request, *args, **kwargs):
+        """List user's wishlists (for customers, only their own)"""
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve a specific wishlist"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='add')
+    def add_product(self, request, pk=None):
+        """Add a product to the wishlist"""
+        wishlist = self.get_object()
+
+        serializer = AddToWishlistSerializer(data=request.data)
+        if serializer.is_valid():
+            product_id = serializer.validated_data['product_id']
+            result = wishlist.add_product(product_id)
+            return Response(result, status=status.HTTP_200_OK if not result['added'] else status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['delete'], url_path=r'remove/(?P<product_id>[^/]+)')
+    def remove_product(self, request, pk=None, product_id=None):
+        """Remove a product from the wishlist"""
+        wishlist = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = wishlist.remove_product(product_id)
+        status_code = status.HTTP_200_OK if result['removed'] else status.HTTP_404_NOT_FOUND
+        return Response(result, status=status_code)
+
+    @action(detail=True, methods=['post'], url_path='clear')
+    def clear(self, request, pk=None):
+        """Clear all products from the wishlist"""
+        wishlist = self.get_object()
+        result = wishlist.clear()
+        return Response(result, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path=r'check/(?P<product_id>[^/]+)')
+    def check_product(self, request, pk=None, product_id=None):
+        """Check if a product is in the user's wishlist"""
+        wishlist = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        is_in_wishlist = wishlist.has_product(product_id)
+        return Response({
+            'product_id': product_id,
+            'in_wishlist': is_in_wishlist
+        }, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path=r'store/(?P<store_owner_id>[^/]+)')
     def store_products(self, request, store_owner_id=None):
