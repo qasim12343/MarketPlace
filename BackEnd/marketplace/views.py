@@ -565,6 +565,40 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'], url_path=r'store/(?P<store_owner_id>[^/]+)')
+    def store_products(self, request, store_owner_id=None):
+        """Get active products of a specific store owner (accessible by customers)"""
+        if not store_owner_id:
+            return Response(
+                {'detail': 'Store owner ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            store_owner = StoreOwner.objects.get(id=store_owner_id)
+        except StoreOwner.DoesNotExist:
+            return Response(
+                {'detail': 'Store owner not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get active products of this store owner
+        products = Product.objects.filter(
+            store_owner=store_owner,
+            status='active'
+        ).order_by('-created_at')
+
+        # Serialize products
+        serializer = self.get_serializer(products, many=True)
+        return Response({
+            'store': {
+                'id': str(store_owner.id),
+                'store_name': store_owner.store_name,
+                'store_rating': store_owner.store_rating or {'average': 0, 'count': 0}
+            },
+            'products': serializer.data,
+            'total_products': len(serializer.data)
+        })
 
 class CommentViewSet(viewsets.ModelViewSet):
     """ViewSet for Comment operations"""
@@ -800,41 +834,7 @@ class WishlistViewSet(viewsets.GenericViewSet):
             'in_wishlist': is_in_wishlist
         }, status=status.HTTP_200_OK)
 
-    @action(detail=False, methods=['get'], url_path=r'store/(?P<store_owner_id>[^/]+)')
-    def store_products(self, request, store_owner_id=None):
-        """Get active products of a specific store owner (accessible by customers)"""
-        if not store_owner_id:
-            return Response(
-                {'detail': 'Store owner ID is required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            store_owner = StoreOwner.objects.get(id=store_owner_id)
-        except StoreOwner.DoesNotExist:
-            return Response(
-                {'detail': 'Store owner not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Get active products of this store owner
-        products = Product.objects.filter(
-            store_owner=store_owner,
-            status='active'
-        ).order_by('-created_at')
-
-        # Serialize products
-        serializer = self.get_serializer(products, many=True)
-        return Response({
-            'store': {
-                'id': str(store_owner.id),
-                'store_name': store_owner.store_name,
-                'store_rating': store_owner.store_rating or {'average': 0, 'count': 0}
-            },
-            'products': serializer.data,
-            'total_products': len(serializer.data)
-        })
-
+    
 
 class CategoryViewSet(viewsets.ViewSet):
     """ViewSet for category-based operations on the home page"""
