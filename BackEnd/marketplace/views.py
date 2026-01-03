@@ -1169,6 +1169,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(order)
         return Response({
             'detail': 'Order created successfully',
+            'data':serializer.data
           
         }, status=status.HTTP_201_CREATED)
 
