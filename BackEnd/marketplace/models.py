@@ -3,6 +3,8 @@ from django_mongodb_backend.fields import ObjectIdAutoField
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
 from django.contrib.auth.models import PermissionsMixin
 from django.core.validators import RegexValidator, MinLengthValidator, MaxLengthValidator, MinValueValidator, MaxValueValidator
+from django.utils import timezone
+from datetime import timedelta
 
 
 phone_validator = RegexValidator(
@@ -33,6 +35,7 @@ class UserManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_verified", True)
+        extra_fields.setdefault("user_type", "admin")
 
         if extra_fields.get("is_staff") is not True:
             raise ValueError("Superuser must have is_staff=True.")
@@ -51,7 +54,7 @@ class BaseUser(AbstractBaseUser, PermissionsMixin):
 
     user_type = models.CharField(
         max_length=20,
-        choices=[('customer', 'Customer'), ('store_owner', 'Store Owner')],
+        choices=[('customer', 'Customer'), ('store_owner', 'Store Owner'), ('admin', 'Admin')],
         default='customer',
     )
 
@@ -976,3 +979,202 @@ class Order(models.Model):
         self.total_amount = total
         self.save(update_fields=['total_amount'])
         return total
+
+
+class WishlistItem(models.Model):
+    """
+    Wishlist Item model representing individual items in a user's wishlist.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    wishlist = models.ForeignKey(
+        'Wishlist',
+        on_delete=models.CASCADE,
+        related_name='items',
+        help_text="لیست علاقه‌مندی مرتبط"
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        help_text="محصول"
+    )
+    added_at = models.DateTimeField(
+        default=timezone.now,
+        help_text="زمان اضافه شدن به لیست علاقه‌مندی"
+    )
+
+    class Meta:
+        verbose_name = "Wishlist Item"
+        verbose_name_plural = "Wishlist Items"
+        indexes = [
+            models.Index(fields=['added_at']),
+        ]
+        # Unique constraint: each product can appear only once per wishlist
+        constraints = [
+            models.UniqueConstraint(
+                fields=['wishlist', 'product'],
+                name='unique_wishlist_product'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.product.title} in {self.wishlist.user.full_name}'s wishlist"
+
+
+class Comment(models.Model):
+    """
+    Comment model for product comments and replies.
+    Customers can comment on products, store owners and admins can reply.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        help_text="محصول مورد نظر"
+    )
+    author = models.ForeignKey(
+        BaseUser,
+        on_delete=models.CASCADE,
+        related_name='comments',
+        help_text="نویسنده نظر"
+    )
+    content = models.TextField(
+        help_text="متن نظر",
+        validators=[MinLengthValidator(1)],
+        error_messages={'required': "متن نظر الزامی است"}
+    )
+    parent = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='replies',
+        help_text="نظر والد (برای پاسخ‌ها)"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Comment"
+        verbose_name_plural = "Comments"
+        indexes = [
+            models.Index(fields=['product']),
+            models.Index(fields=['author']),
+            models.Index(fields=['parent']),
+            models.Index(fields=['created_at']),
+        ]
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment by {self.author.full_name} on {self.product.title}"
+
+    @property
+    def is_reply(self):
+        """Check if this comment is a reply"""
+        return self.parent is not None
+
+    def get_replies(self):
+        """Get all direct replies to this comment"""
+        return self.replies.all()
+
+    def can_reply(self, user):
+        """Check if a user can reply to this comment"""
+        if user.is_superuser:
+            return True  # Admin can reply to any comment
+        if user.user_type == 'store_owner' and self.product.store_owner == user:
+            return True  # Store owner can reply to comments on their products
+        return False
+
+
+class Wishlist(models.Model):
+    """
+    Wishlist model representing a user's wishlist.
+    Each user can have only one wishlist.
+    """
+    id = ObjectIdAutoField(primary_key=True)
+
+    user = models.OneToOneField(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name='wishlist',
+        help_text="کاربر صاحب لیست علاقه‌مندی"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Wishlist"
+        verbose_name_plural = "Wishlists"
+        indexes = [
+            models.Index(fields=['user']),
+        ]
+
+    def __str__(self):
+        return f"Wishlist for {self.user.full_name}"
+
+    @property
+    def item_count(self):
+        """Virtual for item count"""
+        return self.items.count()
+
+    @classmethod
+    def find_by_user_id(cls, user_id):
+        """Static method to find wishlist by user ID with populated products"""
+        try:
+            wishlist = cls.objects.select_related('user').prefetch_related(
+                'items__product',
+                'items__product__store_owner',
+                'items__product__images'
+            ).get(user_id=user_id)
+            return wishlist
+        except cls.DoesNotExist:
+            return None
+
+    @classmethod
+    def is_product_in_wishlist(cls, user_id, product_id):
+        """Static method to check if product is in user's wishlist"""
+        return cls.objects.filter(
+            user_id=user_id,
+            items__product_id=product_id
+        ).exists()
+
+    def add_product(self, product_id):
+        """Instance method to add product to wishlist"""
+        if self.items.filter(product_id=product_id).exists():
+            # Update added_at timestamp if already exists
+            item = self.items.get(product_id=product_id)
+            item.added_at = timezone.now()
+            item.save()
+            return {'added': False, 'message': 'Product already in wishlist'}
+        else:
+            # Add new item
+            self.items.create(
+                product_id=product_id,
+                added_at=timezone.now()
+            )
+            return {'added': True, 'message': 'Product added to wishlist'}
+
+    def remove_product(self, product_id):
+        """Instance method to remove product from wishlist"""
+        try:
+            item = self.items.get(product_id=product_id)
+            item.delete()
+            return {'removed': True, 'message': 'Product removed from wishlist'}
+        except WishlistItem.DoesNotExist:
+            return {'removed': False, 'message': 'Product not found in wishlist'}
+
+    def clear(self):
+        """Instance method to clear wishlist"""
+        self.items.all().delete()
+        return {'cleared': True, 'message': 'Wishlist cleared'}
+
+    def has_product(self, product_id):
+        """Instance method to check if product exists in wishlist"""
+        return self.items.filter(product_id=product_id).exists()
+
+    def get_recent_items(self, days=30):
+        """Instance method to get recently added items"""
+        cutoff_date = timezone.now() - timedelta(days=days)
+        return self.items.filter(added_at__gte=cutoff_date).order_by('-added_at')

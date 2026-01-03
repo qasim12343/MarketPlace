@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Customer, StoreOwner, Product, ProductRating, ProductImage, Cart, Order, OrderItem
+from .models import Customer, StoreOwner, Product, ProductRating, ProductImage, Cart, Order, OrderItem, Wishlist, WishlistItem, Comment
 
 
 class ProductImageSerializer(serializers.ModelSerializer):
@@ -98,6 +98,240 @@ class CustomerSerializer(serializers.ModelSerializer):
             instance.set_password(password)
         instance.save()
         return instance
+
+
+class CommentSerializer(serializers.ModelSerializer):
+    """Serializer for Comment model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    author = serializers.SerializerMethodField(read_only=True)
+    product = serializers.SerializerMethodField(read_only=True)
+    replies = serializers.SerializerMethodField(read_only=True)
+
+    # Computed fields
+    is_reply = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Comment
+        fields = [
+            'id',
+            'product',
+            'author',
+            'content',
+            'parent',
+            'replies',
+            'is_reply',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'author',
+            'product',
+            'replies',
+            'is_reply',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_author(self, obj):
+        """Return author basic info"""
+        return {
+            'id': str(obj.author.id),
+            'full_name': obj.author.full_name,
+            'user_type': obj.author.user_type,
+            'phone': obj.author.phone,
+        }
+
+    def get_product(self, obj):
+        """Return product basic info"""
+        return {
+            'id': str(obj.product.id),
+            'title': obj.product.title,
+            'sku': obj.product.sku,
+        }
+
+    def get_replies(self, obj):
+        """Return replies to this comment"""
+        replies = obj.get_replies()
+        return CommentSerializer(replies, many=True, context=self.context).data
+
+    def validate_content(self, value):
+        """Validate comment content"""
+        if not value or len(value.strip()) == 0:
+            raise serializers.ValidationError("متن نظر الزامی است")
+        if len(value) > 1000:
+            raise serializers.ValidationError("متن نظر نمی‌تواند بیش از ۱۰۰۰ کاراکتر باشد")
+        return value.strip()
+
+    def validate_parent(self, value):
+        """Validate parent comment exists and belongs to same product"""
+        if value:
+            # Ensure parent exists
+            try:
+                parent_comment = Comment.objects.get(id=value)
+            except Comment.DoesNotExist:
+                raise serializers.ValidationError("نظر والد یافت نشد")
+
+            # Ensure parent belongs to the same product
+            product_id = self.context.get('product_id')
+            if product_id and str(parent_comment.product.id) != product_id:
+                raise serializers.ValidationError("نظر والد باید به همان محصول تعلق داشته باشد")
+
+        return value
+
+    def create(self, validated_data):
+        """Create a new comment"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        user = request.user
+
+        # Get product id from URL
+        product_id = self.context.get('product_id')
+        if not product_id:
+            raise serializers.ValidationError("شناسه محصول یافت نشد")
+
+        # Get the Product instance
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            raise serializers.ValidationError("محصول یافت نشد")
+
+        # Set author and product
+        validated_data['author'] = user
+        validated_data['product'] = product
+
+        # Handle permissions for replies
+        parent_id = validated_data.get('parent')
+        if parent_id:
+            # This is a reply
+            try:
+                parent_comment = Comment.objects.get(id=parent_id)
+            except Comment.DoesNotExist:
+                raise serializers.ValidationError("نظر والد یافت نشد")
+
+            # Check if user can reply to this comment
+            if not parent_comment.can_reply(user):
+                raise serializers.ValidationError("شما مجاز به پاسخ به این نظر نیستید")
+
+        return Comment.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+        """Update comment - only allow author to update their own comments"""
+        request = self.context.get('request')
+        if not request or not hasattr(request, 'user'):
+            raise serializers.ValidationError("اطلاعات کاربر یافت نشد")
+
+        user = request.user
+
+        # Only author can update their comment
+        if instance.author != user:
+            raise serializers.ValidationError("شما فقط می‌توانید نظر خود را ویرایش کنید")
+
+        # Only allow updating content
+        if 'content' in validated_data:
+            instance.content = validated_data['content']
+            instance.save()
+
+        return instance
+
+
+class WishlistItemSerializer(serializers.ModelSerializer):
+    """Serializer for WishlistItem model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    product = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = WishlistItem
+        fields = [
+            'id',
+            'product',
+            'added_at',
+        ]
+        read_only_fields = ['id', 'added_at']
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_product(self, obj):
+        """Return product details as specified in the populate"""
+        return {
+            'id': str(obj.product.id),
+            'title': obj.product.title,
+            'price': obj.product.price,
+            'compare_price': obj.product.compare_price,
+            'images': obj.product.get_all_image_urls(),
+            'stock': obj.product.stock,
+            'status': obj.product.status,
+            'store_id': str(obj.product.store_owner.id),
+            'colors': obj.product.colors,
+            'sizes': obj.product.sizes,
+            'description': obj.product.description,
+        }
+
+
+class WishlistSerializer(serializers.ModelSerializer):
+    """Serializer for Wishlist model"""
+    # Force ObjectId to string for DRF representation
+    id = serializers.SerializerMethodField(read_only=True)
+    user = serializers.SerializerMethodField(read_only=True)
+    items = WishlistItemSerializer(many=True, read_only=True)
+
+    # Computed fields
+    item_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Wishlist
+        fields = [
+            'id',
+            'user',
+            'items',
+            'item_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = [
+            'id',
+            'user',
+            'items',
+            'item_count',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_id(self, obj):
+        return str(obj.id) if obj.id is not None else None
+
+    def get_user(self, obj):
+        """Return user basic info"""
+        return {
+            'id': str(obj.user.id),
+            'full_name': obj.user.full_name,
+            'phone': obj.user.phone,
+        }
+
+    def get_item_count(self, obj):
+        """Return number of items in wishlist"""
+        return obj.item_count
+
+
+class AddToWishlistSerializer(serializers.Serializer):
+    """Serializer for adding products to wishlist"""
+    product_id = serializers.CharField(required=True)
+
+    def validate_product_id(self, value):
+        """Validate product exists and is active"""
+        try:
+            product = Product.objects.get(id=value, status='active')
+        except Product.DoesNotExist:
+            raise serializers.ValidationError("محصول یافت نشد یا غیرفعال است")
+        return value
 
 
 class OrderItemSerializer(serializers.ModelSerializer):

@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.db.models import Q
-from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem
-from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer
+from .models import Customer, StoreOwner, Product, ProductRating, Cart, Order, OrderItem, Wishlist, WishlistItem, Comment
+from .serializers import CartItemSerializer, CustomerSerializer, StoreOwnerSerializer, ProductSerializer, ProductRatingSerializer, CartSerializer, OrderSerializer, OrderItemSerializer, WishlistSerializer, WishlistItemSerializer, AddToWishlistSerializer, CommentSerializer
 from .permissions import IsAdminRole, IsSelfOrAdmin, IsStoreOwner, IsStoreOwnerOrAdmin, IsCustomer, IsCustomerOrAdmin
 
 
@@ -332,19 +332,20 @@ class ProductViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = Product.objects.all()
 
-        # If user is store owner, only show their products
+        # If user is store owner, show all their products (active and inactive)
         if user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'store_owner':
             queryset = queryset.filter(store_owner=user)
         # If user is admin, show all products
+        elif user.is_authenticated and user.is_superuser:
+            # Admins can see all products (active and inactive)
+            pass  # No filtering needed
         # For anonymous users or customers, only show active products
-
-        # Filter by status - only show active products for non-store-owner users
-        if not (user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'store_owner' and user.is_superuser):
+        else:
             queryset = queryset.filter(status='active')
 
         # Apply ordering
         queryset = queryset.order_by('-created_at')
-        
+
         return queryset
 
     def get_permissions(self):
@@ -365,13 +366,15 @@ class ProductViewSet(viewsets.ModelViewSet):
         if self.action in ['rate_product', 'get_my_rating', 'update_my_rating']:
             # Only customers and admins can rate products
             return [IsCustomerOrAdmin()]
+        if self.action in ['store_products']:
+            # Authenticated users can fetch products by store owner
+            return [permissions.IsAuthenticated()]
         return [permissions.IsAuthenticated()]
 
     def create(self, request, *args, **kwargs):
         product_data = request.data
         product_images = request.FILES.getlist('images')
-        print(product_data)
-        print(product_images)
+       
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         pr = serializer.save(store_owner=request.user)
@@ -561,6 +564,276 @@ class ProductViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """ViewSet for Comment operations"""
+    queryset = Comment.objects.all().order_by('-created_at')
+    serializer_class = CommentSerializer
+
+    def get_queryset(self):
+        """Filter comments - everyone can see comments, but filtered by product"""
+        queryset = Comment.objects.all()
+
+        # Filter by product if provided
+        product_id = self.request.query_params.get('product_id')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+
+        # For nested comments, only show top-level comments by default
+        # Replies are included in the 'replies' field of parent comments
+        queryset = queryset.filter(parent__isnull=True)
+
+        return queryset.order_by('-created_at')
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve']:
+            # Anyone can view comments
+            return [permissions.AllowAny()]
+        if self.action in ['create']:
+            # Only authenticated users can create comments
+            return [permissions.IsAuthenticated()]
+        if self.action in ['update', 'partial_update', 'destroy']:
+            # Only comment author can update their own comments
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated()]
+
+    def get_serializer_context(self):
+        """Add product_id to serializer context"""
+        context = super().get_serializer_context()
+        # Get product_id from URL if it's a product-scoped action
+        if 'product_pk' in self.kwargs:
+            context['product_id'] = self.kwargs['product_pk']
+        elif 'product_id' in self.request.query_params:
+            context['product_id'] = self.request.query_params['product_id']
+        return context
+
+    def create(self, request, *args, **kwargs):
+        """Create a new comment - must be associated with a product"""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        comment = serializer.save()
+        serializer = self.get_serializer(comment)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def update(self, instance, validated_data):
+        """Update comment - only allow content updates"""
+        # Check if user can update this comment (only author)
+        if instance.author != self.request.user:
+            raise PermissionDenied("You can only update your own comments")
+
+        # Only allow updating content
+        if 'content' in validated_data:
+            instance.content = validated_data['content']
+            instance.save()
+
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    def destroy(self, instance, *args, **kwargs):
+        """Delete comment - only author or admin can delete"""
+        if instance.author != self.request.user and not self.request.user.is_superuser:
+            raise PermissionDenied("You can only delete your own comments")
+
+        # Soft delete or hard delete? For now, hard delete
+        # But in production, consider soft delete
+        instance.delete()
+        return Response({'detail': 'Comment deleted successfully'}, status=status.HTTP_204_NO_CONTENT)
+
+    # Custom actions for product-specific comments
+    @action(detail=False, methods=['get'], url_path=r'product/(?P<product_id>[^/]+)')
+    def product_comments(self, request, product_id=None):
+        """Get all comments for a specific product"""
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get top-level comments for this product
+        comments = Comment.objects.filter(
+            product_id=product_id,
+            parent__isnull=True
+        ).order_by('-created_at')
+
+        serializer = self.get_serializer(comments, many=True)
+        return Response({
+            'product_id': product_id,
+            'comments': serializer.data,
+            'total_comments': len(serializer.data)
+        })
+
+    @action(detail=True, methods=['post'], url_path='reply')
+    def reply_to_comment(self, request, pk=None):
+        """Reply to a specific comment"""
+        parent_comment = self.get_object()
+
+        # Check if user can reply to this comment
+        if not parent_comment.can_reply(request.user):
+            return Response(
+                {'detail': 'You do not have permission to reply to this comment'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Create reply data
+        reply_data = {
+            'content': request.data.get('content'),
+            'parent': str(parent_comment.id)
+        }
+
+        serializer = self.get_serializer(data=reply_data)
+        serializer.is_valid(raise_exception=True)
+        reply = serializer.save()
+
+        serializer = self.get_serializer(reply)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class WishlistViewSet(viewsets.GenericViewSet):
+    """ViewSet for Wishlist operations"""
+    queryset = Wishlist.objects.all().order_by('-created_at')
+    serializer_class = WishlistSerializer
+
+    def get_queryset(self):
+        """Filter wishlists - customers can only see their own wishlist, admins can see all"""
+        user = self.request.user
+
+        if user.is_authenticated and hasattr(user, 'user_type') and user.user_type == 'customer':
+            # Customers can only see their own wishlist
+            return Wishlist.objects.filter(user=user)
+        elif user.is_authenticated and user.is_superuser:
+            # Admins can see all wishlists
+            return Wishlist.objects.all()
+        else:
+            # Anonymous users can't see wishlists
+            return Wishlist.objects.none()
+
+    def get_permissions(self):
+        """Set permissions based on action"""
+        if self.action in ['list', 'retrieve', 'add_product', 'remove_product', 'clear', 'check_product']:
+            # Customers can manage their own wishlist, admins can view all
+            return [IsCustomerOrAdmin()]
+        return [permissions.IsAuthenticated()]
+
+    def get_object(self):
+        """Override to get wishlist by user for 'me' lookup"""
+        lookup_value = self.kwargs.get(self.lookup_field)
+        if lookup_value == 'me':
+            if not self.request.user.is_authenticated:
+                raise PermissionDenied("Authentication required")
+            if not hasattr(self.request.user, 'user_type') or self.request.user.user_type != 'customer':
+                raise PermissionDenied("Only customers can access their wishlist")
+
+            # Get the Customer instance
+            try:
+                customer = Customer.objects.get(id=self.request.user.id)
+            except Customer.DoesNotExist:
+                raise PermissionDenied("Customer profile not found")
+
+            # Get or create wishlist for the customer
+            wishlist, created = Wishlist.objects.get_or_create(user=customer)
+            return wishlist
+
+        return super().get_object()
+
+    def list(self, request, *args, **kwargs):
+        """List user's wishlists (for customers, only their own)"""
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve a specific wishlist"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='add')
+    def add_product(self, request, pk=None):
+        """Add a product to the wishlist"""
+        wishlist = self.get_object()
+
+        serializer = AddToWishlistSerializer(data=request.data)
+        if serializer.is_valid():
+            product_id = serializer.validated_data['product_id']
+            result = wishlist.add_product(product_id)
+            return Response(result, status=status.HTTP_200_OK if not result['added'] else status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['delete'], url_path=r'remove/(?P<product_id>[^/]+)')
+    def remove_product(self, request, pk=None, product_id=None):
+        """Remove a product from the wishlist"""
+        wishlist = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        result = wishlist.remove_product(product_id)
+        status_code = status.HTTP_200_OK if result['removed'] else status.HTTP_404_NOT_FOUND
+        return Response(result, status=status_code)
+
+    @action(detail=True, methods=['post'], url_path='clear')
+    def clear(self, request, pk=None):
+        """Clear all products from the wishlist"""
+        wishlist = self.get_object()
+        result = wishlist.clear()
+        return Response(result, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path=r'check/(?P<product_id>[^/]+)')
+    def check_product(self, request, pk=None, product_id=None):
+        """Check if a product is in the user's wishlist"""
+        wishlist = self.get_object()
+
+        if not product_id:
+            return Response(
+                {'detail': 'Product ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        is_in_wishlist = wishlist.has_product(product_id)
+        return Response({
+            'product_id': product_id,
+            'in_wishlist': is_in_wishlist
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['get'], url_path=r'store/(?P<store_owner_id>[^/]+)')
+    def store_products(self, request, store_owner_id=None):
+        """Get active products of a specific store owner (accessible by customers)"""
+        if not store_owner_id:
+            return Response(
+                {'detail': 'Store owner ID is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            store_owner = StoreOwner.objects.get(id=store_owner_id)
+        except StoreOwner.DoesNotExist:
+            return Response(
+                {'detail': 'Store owner not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get active products of this store owner
+        products = Product.objects.filter(
+            store_owner=store_owner,
+            status='active'
+        ).order_by('-created_at')
+
+        # Serialize products
+        serializer = self.get_serializer(products, many=True)
+        return Response({
+            'store': {
+                'id': str(store_owner.id),
+                'store_name': store_owner.store_name,
+                'store_rating': store_owner.store_rating or {'average': 0, 'count': 0}
+            },
+            'products': serializer.data,
+            'total_products': len(serializer.data)
+        })
 
 
 class CategoryViewSet(viewsets.ViewSet):

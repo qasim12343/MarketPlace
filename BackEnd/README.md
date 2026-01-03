@@ -2,6 +2,7 @@
 - python manage.py makemigrations
 - python manage.py migrate
 - python manage.py runserver
+- python manage.py createsuperuser    /// create admin account
 
 # Customer
 ## Post sample to create user:
@@ -76,6 +77,7 @@ then get the access token
 
 ### Product CRUD
 - `GET /api/products/` - List products (filtered by status for non-store-owners)
+- `GET http://127.0.0.1:8000/api/products/store/{store_owner_id}/`-Fetch Products by Store Owner (Customer API)
 - `POST /api/products/` - Create product (store owners only)
 - `GET /api/products/{id}/` - Get product details
 - `PUT /api/products/{id}/` - Update product (store owners/admins only)
@@ -124,7 +126,6 @@ then get the access token
 
 ## Increment View Count:
 - POST http://127.0.0.1:8000/api/products/{id}/view/
-
 
 //////////////////////////////
 # Category API for Home Page
@@ -199,6 +200,68 @@ Authorization: Bearer <customer_token>
 ```bash
 POST /api/carts/me/clear/
 Authorization: Bearer <customer_token>
+```
+
+
+//////////////////////////////
+# Comments
+
+### Comment CRUD
+- `GET /api/comments/` - List all comments (optionally filtered by product_id)
+- `POST /api/comments/` - Create new comment on a product (authenticated users)
+- `GET /api/comments/{id}/` - Get specific comment with replies
+- `PUT /api/comments/{id}/` - Update own comment (only author)
+- `PATCH /api/comments/{id}/` - Partial update own comment (only author)
+- `DELETE /api/comments/{id}/` - Delete own comment (author or admin)
+
+### Comment Features
+- `GET /api/comments/product/{product_id}/` - Get all comments for a specific product
+- `POST /api/comments/{id}/reply/` - Reply to a specific comment
+
+## Permissions
+- **Customers**: Can create top-level comments on any product
+- **Store Owners**: Can reply to comments on their own products
+- **Admins**: Can reply to comments on any product
+
+## API Usage Examples
+
+### Create Comment
+```bash
+POST /api/comments/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "product": "6790ce0b234b9c083b0aaf4",
+  "content": "این محصول عالی است!"
+}
+```
+
+### Reply to Comment
+```bash
+POST /api/comments/{comment_id}/reply/
+Authorization: Bearer <store_owner_token>
+Content-Type: application/json
+
+{
+  "content": "ممنون از نظر شما. خوشحالیم که راضی هستید."
+}
+```
+
+### Get Product Comments
+```bash
+GET /api/comments/product/{product_id}/
+```
+
+### Update Own Comment
+```bash
+PUT /api/comments/{comment_id}/
+Authorization: Bearer <author_token>
+Content-Type: application/json
+
+{
+  "content": "محصول عالی است، پیشنهاد می‌کنم!"
+}
 ```
 
 //////////////////////////////
@@ -284,5 +347,30 @@ Content-Type: application/json
 
 {
   "tracking_number": "TRK123456789"
+}
+
+//////////////////////////////
+# Wishlist
+
+### Wishlist CRUD
+- `GET /api/wishlists/me/` - Get current user's wishlist with populated products
+- `GET /api/wishlists/{id}/` - Get specific wishlist details (admin/customers only)
+
+### Wishlist Management
+- `POST /api/wishlists/me/add/` - Add product to wishlist
+- `DELETE /api/wishlists/me/remove/{product_id}/` - Remove product from wishlist
+- `POST /api/wishlists/me/clear/` - Clear all items from wishlist
+- `GET /api/wishlists/me/check/{product_id}/` - Check if product is in user's wishlist
+
+## API Usage Examples
+
+### Add Product to Wishlist
+```bash
+POST /api/wishlists/me/add/
+Authorization: Bearer <customer_token>
+Content-Type: application/json
+
+{
+  "product_id": "6790ce0b234b9c083b0aaf4"
 }
 ```
